@@ -27,12 +27,13 @@ function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
 
 async function renderStore(store: TuiStore) {
   const instance = render(createElement(TuiApp, { store }));
-  await new Promise((r) => setTimeout(r, 25));
+  await new Promise((r) => setTimeout(r, 50));
   return {
     frame: () => instance.lastFrame() ?? "",
     async key(text: string) {
       instance.stdin.write(text);
-      await new Promise((r) => setTimeout(r, 25));
+      // 50ms: ink's render + readline decode need a beat; under CI load 25ms flakes.
+      await new Promise((r) => setTimeout(r, 50));
     },
     async escape() {
       await this.key("\x1b");
