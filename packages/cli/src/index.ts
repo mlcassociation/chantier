@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { parseArgs } from "node:util";
 import {
   buildSystemPrompt,
   createSessionStore,
@@ -23,6 +22,8 @@ import {
 } from "@chantier/permissions";
 import { type ProviderConfig, resolveAdapter } from "@chantier/providers";
 import { buildTools } from "@chantier/tools";
+import { type CliArgValues, parseCliArgs } from "./args.ts";
+import { disableColors } from "./color.ts";
 import { runInteractive } from "./interactive.ts";
 
 const VERSION = "0.1.0";
@@ -45,42 +46,23 @@ Options:
       --yolo             Approve every mutation automatically (headless default denies them)
       --max-turns <n>    Cap agent turns (default 50)
       --verbose          Print tool calls and results to stderr
+      --screen-reader   Screen-reader mode: flat labeled output, aria hints (alias: CHANTIER_SCREEN_READER=1)
+      --no-color        Disable color output (alias: NO_COLOR)
       --version          Print the version
   -h, --help             Show this help
 
 Config:   ~/.chantier/config.json   (see examples/config.json)
 Settings: ~/.chantier/settings.json ← .chantier/settings.json (allow/ask/deny rules)`;
 
-interface ArgvValues {
-  prompt?: string;
-  continue?: boolean;
-  model?: string;
-  "max-turns"?: string;
-  yolo?: boolean;
-  verbose?: boolean;
-  version?: boolean;
-  help?: boolean;
-}
-
 async function main(): Promise<number> {
-  let values: ArgvValues;
+  let values: CliArgValues;
   try {
-    values = parseArgs({
-      options: {
-        prompt: { type: "string", short: "p" },
-        continue: { type: "boolean" },
-        model: { type: "string" },
-        "max-turns": { type: "string" },
-        yolo: { type: "boolean" },
-        verbose: { type: "boolean" },
-        version: { type: "boolean" },
-        help: { type: "boolean", short: "h" },
-      },
-    }).values as ArgvValues;
+    values = parseCliArgs(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n\n${USAGE}\n`);
     return 2;
   }
+  disableColors(values["no-color"], process.env.NO_COLOR);
 
   if (values.version === true) {
     process.stdout.write(`${VERSION}\n`);
@@ -155,6 +137,7 @@ async function main(): Promise<number> {
       system,
       messages,
       maxTurns,
+      screenReader: values["screen-reader"],
     });
   }
 

@@ -126,4 +126,15 @@ describe("approval prompt", () => {
     expect(await quitPending).toBe(null);
     view.unmount();
   });
+
+  it("submits a PTY-canonical line delivered as one bundled chunk", async () => {
+    const store = createTuiStore({ onAbort: () => {} });
+    const taskPending = store.awaitTask();
+    const view = await renderStore(store);
+    // Canonical-mode PTYs deliver a whole line plus Enter as one chunk.
+    await view.key("list files\r");
+    await waitFor(() => store.state.mode === "running");
+    expect(await taskPending).toBe("list files");
+    view.unmount();
+  });
 });
