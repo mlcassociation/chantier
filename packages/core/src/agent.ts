@@ -192,7 +192,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     turns += 1;
     let turnText = "";
     const toolCalls: ToolCallBlock[] = [];
-    const turnStart = messages.length;
+    let turnStart = messages.length;
     let overflowError: unknown;
 
     for (;;) {
@@ -218,6 +218,9 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
         overflowError = error;
         const outcome = await runCompaction();
         if (outcome === null) throw error;
+        // The context list shrank; the next turn's delta accounting restarts
+        // from the compacted tail.
+        turnStart = messages.length;
         yield { type: "compaction", ...outcome };
       }
     }
