@@ -1,7 +1,7 @@
 import type { ApprovalDecision } from "@chantier/permissions";
 import { Box, render, Static, Text, useApp, useInput } from "ink";
 import { createElement, type ReactNode, useEffect, useSyncExternalStore } from "react";
-import type { TuiState, TuiStore } from "./store.ts";
+import type { TuiStore } from "./store.ts";
 
 const PROMPT_HINT = "y allow · a always · n deny · esc abort";
 const INPUT_HINT = "type a task · enter run · q quit";
@@ -55,9 +55,9 @@ export function TuiApp({ store }: { store: TuiStore }) {
   });
 
   const children: Array<ReactNode> = [
-    // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
     createElement(Static, {
       items: [...state.lines],
+      // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
       children: (item: unknown, index: number) =>
         createElement(Text, { key: index, dimColor: index < state.lines.length }, String(item)),
     }),

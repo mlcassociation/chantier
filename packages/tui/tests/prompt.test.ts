@@ -1,6 +1,6 @@
 import { render } from "ink-testing-library";
 import { createElement } from "react";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { keypressToDecision, TuiApp } from "../src/app.ts";
 import type { TuiStore } from "../src/store.ts";
 import { createTuiStore } from "../src/store.ts";

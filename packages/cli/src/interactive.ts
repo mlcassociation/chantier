@@ -9,8 +9,6 @@ import {
 import type { ApprovalSink, RememberingEngine } from "@chantier/permissions";
 import type { AbortKind } from "@chantier/tui";
 import { createTuiStore, startTui, type TuiStore } from "@chantier/tui";
-import { render } from "ink";
-import { createElement } from "react";
 
 export interface InteractiveDeps {
   adapter: ModelAdapter;
