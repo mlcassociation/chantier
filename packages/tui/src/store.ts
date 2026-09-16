@@ -2,6 +2,11 @@ import type { ApprovalDecision, ApprovalRequest } from "@chantier/permissions";
 
 export type TuiMode = "input" | "running";
 
+/** Optional attachment for an approval ask; pre-wired for diff previews. */
+export interface TuiPromptDetail {
+  readonly diff?: string;
+}
+
 export interface TuiState {
   readonly mode: TuiMode;
   /** Finalized transcript lines (rendered once, never re-rendered). */
@@ -12,6 +17,8 @@ export interface TuiState {
   readonly status: string;
   /** Pending approval request; null while the model is streaming. */
   readonly prompt: ApprovalRequest | null;
+  /** Optional diff attachment for the pending ask; null when absent. */
+  readonly promptDetail: TuiPromptDetail | null;
   /** Text typed at the task prompt (input mode only). */
   readonly inputText: string;
   /** True once the owner called finish(); App exits after the final render. */
@@ -39,8 +46,7 @@ export type TuiStore = {
   /** Types one printable character at the task prompt. */
   typeInput(char: string): void;
   /** Renders the approval prompt and waits for a keypress decision. */
-  ask(req: ApprovalRequest): Promise<ApprovalDecision>;
-  /** Key handlers, called from the App's useInput. */
+  ask(req: ApprovalRequest, detail?: TuiPromptDetail): Promise<ApprovalDecision>;
   decide(decision: ApprovalDecision): void;
   /**
    * Esc aborts the current work (deny pending prompt + notify); Ctrl-C quits
@@ -63,16 +69,43 @@ export function createTuiStore(
     streamText: "",
     status: "",
     prompt: null,
+    promptDetail: null,
     inputText: "",
     finished: false,
   };
   const listeners = new Set<() => void>();
   const pendingTasks: Array<{ resolve: (task: string | null) => void }> = [];
   let pendingPrompt: { resolve: (decision: ApprovalDecision) => void } | null = null;
-
   const set = (patch: Partial<TuiState>): void => {
     state = { ...state, ...patch };
     for (const listener of listeners) listener();
+  };
+  // Stream coalescing: appendStream buffers incoming chunks and lands them in
+  // state on one timer tick instead of one set() per chunk, so a fast token
+  // stream redraws the live region at most every STREAM_COALESCE_MS.
+  const STREAM_COALESCE_MS = 20;
+  let pendingStream = "";
+  let streamTimer: NodeJS.Timeout | null = null;
+  const disarmStreamTimer = (): void => {
+    if (streamTimer !== null) {
+      clearTimeout(streamTimer);
+      streamTimer = null;
+    }
+  };
+  const armStreamTimer = (): void => {
+    if (streamTimer !== null) return;
+    streamTimer = setTimeout(() => {
+      streamTimer = null;
+      if (pendingStream.length === 0) return;
+      const chunk = pendingStream;
+      pendingStream = "";
+      set({ streamText: state.streamText + chunk });
+    }, STREAM_COALESCE_MS);
+  };
+  /** Normalizes an ask detail: only a non-empty string diff survives. */
+  const normalizeDetail = (detail: TuiPromptDetail | undefined): { diff: string } | null => {
+    if (typeof detail?.diff === "string" && detail.diff.length > 0) return { diff: detail.diff };
+    return null;
   };
 
   return {
@@ -87,12 +120,17 @@ export function createTuiStore(
       set({ lines: [...state.lines, line] });
     },
     appendStream(text) {
-      set({ streamText: state.streamText + text });
+      pendingStream += text;
+      if (pendingStream.length > 0) armStreamTimer();
     },
     flushStream() {
-      if (state.streamText.length === 0) return;
-      const flushed = [...state.lines, ...state.streamText.split("\n").map((l) => l)];
-      set({ lines: flushed, streamText: "" });
+      disarmStreamTimer();
+      // Order matters: state.streamText is the already-delivered prefix,
+      // pendingStream the newer chunks still waiting on the coalesce timer.
+      const buffered = `${state.streamText}${pendingStream}`;
+      pendingStream = "";
+      if (buffered.length === 0) return;
+      set({ lines: [...state.lines, ...buffered.split("\n")], streamText: "" });
     },
     setStatus(status) {
       set({ status });
@@ -106,7 +144,7 @@ export function createTuiStore(
     awaitTask() {
       const { promise, resolve } = Promise.withResolvers<string | null>();
       pendingTasks.push({ resolve });
-      set({ mode: "input", inputText: "", status: "", prompt: null });
+      set({ mode: "input", inputText: "", status: "", prompt: null, promptDetail: null });
       return promise;
     },
     submitTask(text) {
@@ -119,24 +157,24 @@ export function createTuiStore(
       for (const task of pendingTasks.splice(0)) task.resolve(text);
       set({ mode: "running", inputText: "" });
     },
-    async ask(req) {
+    async ask(req, detail) {
       const { promise, resolve } = Promise.withResolvers<ApprovalDecision>();
       pendingPrompt = { resolve };
-      set({ prompt: req });
+      set({ prompt: req, promptDetail: normalizeDetail(detail) });
       return promise;
     },
     decide(decision) {
       const pending = pendingPrompt;
       if (pending === null) return;
       pendingPrompt = null;
-      set({ prompt: null });
+      set({ prompt: null, promptDetail: null });
       pending.resolve(decision);
     },
     abort(kind) {
       if (pendingPrompt !== null) {
         const pending = pendingPrompt;
         pendingPrompt = null;
-        set({ prompt: null });
+        set({ prompt: null, promptDetail: null });
         pending.resolve({ approved: false, reason: "user aborted" });
       }
       if (kind === "ctrl-c") {
