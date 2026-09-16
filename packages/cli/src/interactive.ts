@@ -117,6 +117,13 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     currentController = new AbortController();
     const outcome = await driveAgent(store, deps, sink, task, currentController.signal);
     store.flushStream();
+    // Rebuild the conversation from the session: runAgent appends assistant and
+    // tool-result messages to the session but never to deps.messages, and a
+    // task-N request missing its tool_use pairing would 400 on strict APIs.
+    const entries = await deps.session.load(deps.session.id);
+    deps.messages = entries
+      .filter((entry) => entry.type === "message")
+      .map((entry) => entry.message);
     if (outcome === "aborted") {
       store.pushLine("cancelled.");
       if (abortKind === "ctrl-c") {

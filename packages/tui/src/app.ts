@@ -11,11 +11,6 @@ export function TuiApp({ store }: { store: TuiStore }) {
   const { exit } = useApp();
 
   useInput((input, key) => {
-    if (process.env.CHANTIER_DEBUG_INPUT !== undefined) {
-      process.stderr.write(
-        `[key] input=${JSON.stringify(input)} return=${key.return} esc=${key.escape} ctrl=${key.ctrl}\n`,
-      );
-    }
     // Read state live at event time: the render closure can be a render or two
     // behind (ink batches renders), and a stale mode/prompt pair swallows keys.
     const { mode, prompt } = store.state;
@@ -107,9 +102,12 @@ function summarizeInput(input: unknown): string {
 
 /** Maps a prompt keypress to a decision; null = key not handled by the prompt. */
 export function keypressToDecision(key: string): ApprovalDecision | null {
-  if (key === "y") return { approved: true };
-  if (key === "a") return { approved: true, remember: true };
-  if (key === "n") return { approved: false, reason: "user denied" };
+  // PTYs can bundle the key with its Enter ("y\r") in one chunk: strip
+  // line-break bytes before matching.
+  const clean = key.replace(/[\r\n]/g, "");
+  if (clean === "y") return { approved: true };
+  if (clean === "a") return { approved: true, remember: true };
+  if (clean === "n") return { approved: false, reason: "user denied" };
   return null;
 }
 

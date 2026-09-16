@@ -49,6 +49,12 @@ describe("approval prompt", () => {
     expect(keypressToDecision("x")).toBe(null);
   });
 
+  it("decides a PTY chunk that bundles the key with its Enter", () => {
+    expect(keypressToDecision("y\r")).toEqual({ approved: true });
+    expect(keypressToDecision("a\r")).toEqual({ approved: true, remember: true });
+    expect(keypressToDecision("n\r")).toEqual({ approved: false, reason: "user denied" });
+  });
+
   it("renders the pending tool and resolves allow on y", async () => {
     const store = createTuiStore({ onAbort: () => {} });
     const pending = store.ask({ tool: "write", input: { path: "hello.txt", content: "hi" } });

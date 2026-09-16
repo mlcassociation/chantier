@@ -146,10 +146,6 @@ async function main(): Promise<number> {
 
   if (interactive) {
     const remembering = createRememberingEngine(permission);
-    const controller = new AbortController();
-    process.on("SIGINT", () => {
-      controller.abort();
-    });
     return runInteractive({
       adapter,
       tools,
