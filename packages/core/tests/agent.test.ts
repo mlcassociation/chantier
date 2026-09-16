@@ -1,5 +1,7 @@
 import type { ModelAdapter, ModelEvent, SessionStore, ToolDefinition } from "@chantier/core";
 import {
+  type ApprovalRequest,
+  type ApprovalSink,
   createAllowAllSink,
   createDenyAllSink,
   createPermissionEngine,
@@ -220,5 +222,83 @@ describe("runAgent", () => {
       }),
     );
     expect(offered).toEqual(["read"]);
+  });
+});
+describe("approval detail channel", () => {
+  function capturingSink(): ApprovalSink & { requests: ApprovalRequest[] } {
+    const requests: ApprovalRequest[] = [];
+    return {
+      requests,
+      async ask(req) {
+        requests.push(structuredClone(req));
+        return { approved: true };
+      },
+    };
+  }
+
+  it("passes askDetail output to the sink as ApprovalRequest.detail", async () => {
+    const editLike: ToolDefinition = {
+      ...writeTool,
+      askDetail: (input) => ({ diff: `diff for ${String(input.path)}` }),
+    };
+    const adapter = scriptedAdapter([
+      [{ type: "tool-call", id: "c1", name: "write", args: { path: "x.txt", content: "hi" } }],
+      [{ type: "finish", stopReason: "end_turn" }],
+    ]);
+    const sink = capturingSink();
+    await collect(
+      runAgent({ ...BASE, tools: [editLike], adapter, session: memorySession(), sink }),
+    );
+    expect(sink.requests).toHaveLength(1);
+    expect(sink.requests[0]?.detail).toEqual({ diff: "diff for x.txt" });
+  });
+
+  it("supports async askDetail hooks and omits detail when undefined", async () => {
+    const asyncDetail: ToolDefinition = {
+      ...writeTool,
+      askDetail: (input) => Promise.resolve({ diff: `async ${String(input.path)}` }),
+    };
+    const plain: ToolDefinition = { ...writeTool, name: "write-plain" };
+    const adapter = scriptedAdapter([
+      [
+        { type: "tool-call", id: "c1", name: "write", args: { path: "a.txt" } },
+        { type: "tool-call", id: "c2", name: "write-plain", args: { path: "b.txt" } },
+      ],
+      [{ type: "finish", stopReason: "end_turn" }],
+    ]);
+    const sink = capturingSink();
+    await collect(
+      runAgent({
+        ...BASE,
+        tools: [asyncDetail, plain],
+        adapter,
+        session: memorySession(),
+        sink,
+      }),
+    );
+    expect(sink.requests[0]?.detail).toEqual({ diff: "async a.txt" });
+    expect(sink.requests[1]?.detail).toBeUndefined();
+  });
+
+  it("a throwing askDetail never blocks the ask", async () => {
+    const throwing: ToolDefinition = {
+      ...writeTool,
+      askDetail: () => {
+        throw new Error("boom");
+      },
+    };
+    const adapter = scriptedAdapter([
+      [{ type: "tool-call", id: "c1", name: "write", args: { path: "x.txt" } }],
+      [{ type: "finish", stopReason: "end_turn" }],
+    ]);
+    const sink = capturingSink();
+    const events = await collect(
+      runAgent({ ...BASE, tools: [throwing], adapter, session: memorySession(), sink }),
+    );
+    expect(sink.requests[0]?.detail).toBeUndefined();
+    const executed = events.find((event) => event.type === "tool-result") as
+      | { content: string }
+      | undefined;
+    expect(executed?.content ?? "").toContain("wrote");
   });
 });
