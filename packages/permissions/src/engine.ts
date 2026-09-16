@@ -2,11 +2,18 @@
 
 export type Decision = "allow" | "ask" | "deny";
 
+export interface ApprovalDetail {
+  /** Unified diff of the pending mutation, for approval-UI rendering. */
+  diff?: string;
+}
+
 export interface ApprovalRequest {
   tool: string;
   input: unknown;
   /** Optional human/model-facing context for the approval prompt. */
   reason?: string;
+  /** Optional tool-computed metadata (e.g. a diff preview); sinks may ignore it. */
+  detail?: ApprovalDetail;
 }
 
 export type ApprovalDecision = {

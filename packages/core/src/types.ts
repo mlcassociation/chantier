@@ -1,4 +1,4 @@
-import type { PermissionEngine } from "@chantier/permissions";
+import type { ApprovalDetail, PermissionEngine } from "@chantier/permissions";
 
 // --- Messages -----------------------------------------------------------------
 
@@ -74,6 +74,17 @@ export interface ToolDefinition {
   handler: (input: Record<string, unknown>, ctx: ToolContext) => Promise<string>;
   /** How to extract the permission specifier (e.g. path, command) from input. */
   specifier?: (input: Record<string, unknown>) => string | undefined;
+  /**
+   * Optional approval-UI metadata (e.g. a unified diff preview of the pending
+   * mutation), passed to the sink via ApprovalRequest.detail. Shape: ApprovalDetail
+   * from @chantier/permissions. Called with the same input the handler will
+   * receive; a returned undefined simply omits the metadata. May be async
+   * (e.g. reading the file to build a diff). Sinks that ignore detail are unaffected.
+   */
+  askDetail?: (
+    input: Record<string, unknown>,
+    ctx: ToolContext,
+  ) => ApprovalDetail | undefined | Promise<ApprovalDetail | undefined>;
 }
 
 // --- Session (JSONL) ----------------------------------------------------------

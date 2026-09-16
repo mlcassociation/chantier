@@ -1,4 +1,4 @@
-import type { ApprovalSink, PermissionEngine } from "@chantier/permissions";
+import type { ApprovalDetail, ApprovalSink, PermissionEngine } from "@chantier/permissions";
 import type { ModelAdapter } from "./model-adapter.ts";
 import type {
   AssistantMessage,
@@ -146,6 +146,12 @@ async function executeCall(
       content: `Permission denied: tool "${call.name}" is not available. It was removed by a deny rule or does not exist. Use one of the listed tools.`,
     };
   }
+  const ctx: ToolContext = {
+    cwd: opts.cwd,
+    session: opts.session,
+    permission: opts.permission,
+    signal: opts.signal,
+  };
   const specifier = tool.specifier?.(call.args);
   const decision = opts.permission.evaluate(call.name, specifier, tool.readOnly);
   if (decision === "deny") {
@@ -155,10 +161,19 @@ async function executeCall(
     };
   }
   if (decision === "ask") {
+    // askDetail is optional approval-UI metadata; failing to compute it (unreadable
+    // file, malformed args) must never block the ask itself.
+    let detail: ApprovalDetail | undefined;
+    try {
+      detail = await tool.askDetail?.(call.args, ctx);
+    } catch {
+      detail = undefined;
+    }
     const approval = await opts.sink.ask({
       tool: call.name,
       input: call.args,
       reason: specifier === undefined ? call.name : `${call.name} ${specifier}`,
+      detail,
     });
     if (!approval.approved) {
       const reason = approval.reason ?? `the request was not approved (${HEADLESS_HINT})`;
@@ -168,12 +183,6 @@ async function executeCall(
       };
     }
   }
-  const ctx: ToolContext = {
-    cwd: opts.cwd,
-    session: opts.session,
-    permission: opts.permission,
-    signal: opts.signal,
-  };
   try {
     const content = await tool.handler(call.args, ctx);
     return { ...base, content };

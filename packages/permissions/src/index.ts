@@ -1,5 +1,6 @@
 export {
   type ApprovalDecision,
+  type ApprovalDetail,
   type ApprovalRequest,
   type ApprovalSink,
   createPermissionEngine,
