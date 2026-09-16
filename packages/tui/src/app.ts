@@ -1,6 +1,6 @@
 import type { ApprovalDecision } from "@chantier/permissions";
 import { Box, render, Static, Text, useApp, useInput } from "ink";
-import { createElement, useEffect, type ReactNode, useSyncExternalStore } from "react";
+import { createElement, type ReactNode, useEffect, useSyncExternalStore } from "react";
 import type { TuiState, TuiStore } from "./store.ts";
 
 const PROMPT_HINT = "y allow · a always · n deny · esc abort";
@@ -53,7 +53,6 @@ export function TuiApp({ store }: { store: TuiStore }) {
     const timer = setTimeout(exit, 50);
     return () => clearTimeout(timer);
   });
-
 
   const children: Array<ReactNode> = [
     // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
