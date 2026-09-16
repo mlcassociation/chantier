@@ -1,9 +1,13 @@
 import {
   type AgentEvent,
+  type CompactionOutcome,
+  compactSession,
+  estimateMessageTokens,
   type Message,
   type ModelAdapter,
   runAgent,
   type SessionStore,
+  sessionView,
   type ToolDefinition,
 } from "@chantier/core";
 import type { ApprovalRequest, ApprovalSink, RememberingEngine } from "@chantier/permissions";
@@ -28,6 +32,11 @@ export interface InteractiveDeps {
   /** Conversation so far (without the system message); extended after each run. */
   messages: Message[];
   maxTurns?: number;
+  /**
+   * Resolved model context window in tokens; undefined (unknown model) leaves
+   * compaction disabled — the shipped core contract.
+   */
+  contextWindow?: number;
   /** Opt-in screen-reader rendering (--screen-reader); CHANTIER_SCREEN_READER=1 also enables it. */
   screenReader?: boolean;
 }
@@ -46,6 +55,84 @@ function summarizeResult(
 function argsSummary(args: Record<string, unknown>): string {
   const json = JSON.stringify(args);
   return json.length > 120 ? `${json.slice(0, 120)}...` : json;
+}
+
+/** Transcript notice for a compaction; ASCII `->` keeps SR/ASCII mode glyph-free. */
+export function compactionNotice(tokensBefore: number, tokensAfter: number): string {
+  return `context compacted: ~${tokensBefore} -> ~${tokensAfter} tokens`;
+}
+
+/** Exact manual compaction command accepted at the task prompt. */
+const COMPACT_COMMAND = "/compact";
+
+/**
+ * Headless stderr notice, printed only under --verbose. Injectable writer
+ * keeps the printing deterministic in tests.
+ */
+export function writeHeadlessCompactionNotice(
+  event: Extract<AgentEvent, { type: "compaction" }>,
+  verbose: boolean,
+  write: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
+): void {
+  if (verbose) write(compactionNotice(event.tokensBefore, event.tokensAfter));
+}
+
+/** Estimate of the current model-facing context, system prompt included. */
+function viewTokens(deps: InteractiveDeps): number {
+  return estimateMessageTokens([{ role: "system", content: deps.system }, ...deps.messages]);
+}
+
+/** Rebuilds deps.messages from the log's model-facing view (compaction-aware). */
+async function reloadMessages(deps: InteractiveDeps): Promise<void> {
+  const entries = await deps.session.load(deps.session.id);
+  deps.messages = sessionView(entries);
+}
+
+export interface CompactTaskOptions {
+  /** Manual /compact: report a notice even when there is nothing to do. */
+  manual?: boolean;
+  signal?: AbortSignal;
+}
+
+/**
+ * Per-task compaction gate: before the next task, estimate the view and let
+ * `compactSession` decide (its threshold is the same one runAgent applies
+ * between turns). On success the compaction entry + summary message have been
+ * appended to the session and deps.messages reloaded from the folded view, so
+ * the next request stays pairing-safe and inside the window.
+ */
+export async function compactTaskContext(
+  store: TuiStore,
+  deps: InteractiveDeps,
+  options: CompactTaskOptions = {},
+): Promise<void> {
+  if (deps.contextWindow === undefined) {
+    if (options.manual === true) {
+      store.pushLine("compaction unavailable: no context window for this model");
+    }
+    return;
+  }
+  let outcome: CompactionOutcome | null = null;
+  try {
+    outcome = await compactSession({
+      store: deps.session,
+      adapter: deps.adapter,
+      system: deps.system,
+      contextWindow: deps.contextWindow,
+      signal: options.signal,
+    });
+  } catch (error) {
+    store.pushLine(`compaction failed: ${(error as Error).message}`);
+    return;
+  }
+  if (outcome === null) {
+    if (options.manual === true) {
+      store.pushLine(`context compacted (no-op): ~${viewTokens(deps)} tokens in view`);
+    }
+    return;
+  }
+  await reloadMessages(deps);
+  store.pushLine(compactionNotice(outcome.tokensBefore, outcome.tokensAfter));
 }
 
 /** Feeds agent events into the store; returns after the run settles. */
@@ -76,6 +163,9 @@ export async function driveAgent(
       system: deps.system,
       messages: deps.messages,
       maxTurns: deps.maxTurns,
+      // Compaction is disabled without a declared window (unknown model).
+      contextWindow: deps.contextWindow,
+      compaction: deps.contextWindow === undefined ? undefined : { enabled: true },
       signal,
     })) {
       if (event.type === "text-delta") {
@@ -85,10 +175,12 @@ export async function driveAgent(
         // findLastSafeSplitPoint idea, text-only version). The 2-char tail
         // sees the boundary even when it straddles two chunks.
         streamTail = `${streamTail}${event.text}`.slice(-2);
-        if (streamTail === "\n\n") store.flushStream();
       } else if (event.type === "tool-result") {
         store.flushStream();
         store.pushLine(`tool: ${event.toolName}(${argsSummary(event.args)})`);
+      } else if (event.type === "compaction") {
+        store.flushStream();
+        store.pushLine(compactionNotice(event.tokensBefore, event.tokensAfter));
       } else {
         store.flushStream();
         // The usage separator routes through the centralized symbols helper
@@ -178,15 +270,21 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     }
     abortKind = "escape" as AbortKind;
     currentController = new AbortController();
+    if (task.trim() === COMPACT_COMMAND) {
+      await compactTaskContext(store, deps, { manual: true, signal: currentController.signal });
+      continue;
+    }
     const outcome = await driveAgent(store, deps, sink, task, currentController.signal);
     store.flushStream();
     // Rebuild the conversation from the session: runAgent appends assistant and
     // tool-result messages to the session but never to deps.messages, and a
     // task-N request missing its tool_use pairing would 400 on strict APIs.
-    const entries = await deps.session.load(deps.session.id);
-    deps.messages = entries
-      .filter((entry) => entry.type === "message")
-      .map((entry) => entry.message);
+    // sessionView keeps the fold compaction-aware (summary + kept tail).
+    await reloadMessages(deps);
+    if (outcome !== "aborted") {
+      // Between-task gate: compact BEFORE the next task's first request.
+      await compactTaskContext(store, deps, { signal: currentController.signal });
+    }
     if (outcome === "aborted") {
       store.pushLine("cancelled.");
       if (abortKind === "ctrl-c") {

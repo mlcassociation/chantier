@@ -9,6 +9,7 @@ import {
   resumeSessionStore,
   runAgent,
   type SessionStore,
+  sessionView,
 } from "@chantier/core";
 import {
   createAllowAllSink,
@@ -16,7 +17,7 @@ import {
   createPermissionEngine,
   createRememberingEngine,
 } from "@chantier/permissions";
-import { resolveAdapter } from "@chantier/providers";
+import { KNOWN_MODEL_CONTEXT_WINDOWS, resolveAdapter } from "@chantier/providers";
 import { buildTools } from "@chantier/tools";
 import { type CliArgValues, parseCliArgs } from "./args.ts";
 import {
@@ -27,7 +28,7 @@ import {
 } from "./auth-commands.ts";
 import { disableColors } from "./color.ts";
 import { loadConfig, loadSettings } from "./config.ts";
-import { runInteractive } from "./interactive.ts";
+import { runInteractive, writeHeadlessCompactionNotice } from "./interactive.ts";
 
 const VERSION = "0.1.0";
 
@@ -100,6 +101,13 @@ async function main(): Promise<number> {
   const model =
     modelOverride ?? (provider === "ollama" ? config.ollama?.model : config.anthropic?.model) ?? "";
 
+  // Context window for compaction: config-slot override first, then the
+  // documented window for the resolved model id. Unknown model = undefined =
+  // compaction stays disabled (the shipped core contract).
+  const contextWindow =
+    (provider === "ollama" ? config.ollama?.contextWindow : config.anthropic?.contextWindow) ??
+    KNOWN_MODEL_CONTEXT_WINDOWS[model];
+
   let adapter: ModelAdapter;
   try {
     // Key order: explicit config.json apiKey → auth.json → standard env vars
@@ -133,7 +141,9 @@ async function main(): Promise<number> {
     }
     session = await resumeSessionStore({ cwd, id: previousId });
     const entries = await session.load(previousId);
-    messages = entries.filter((entry) => entry.type === "message").map((entry) => entry.message);
+    // The model-facing fold: on a compacted session this is summary + kept
+    // tail, not the full replay (which would overflow the next request).
+    messages = sessionView(entries);
   } else {
     session = await createSessionStore({ cwd, provider, model });
   }
@@ -156,6 +166,7 @@ async function main(): Promise<number> {
       system,
       messages,
       maxTurns,
+      contextWindow,
       screenReader: values["screen-reader"],
     });
   }
@@ -180,6 +191,9 @@ async function main(): Promise<number> {
       system,
       messages,
       maxTurns: maxTurnsArg === undefined ? undefined : Number(maxTurnsArg),
+      // Compaction is disabled without a declared window (unknown model).
+      contextWindow,
+      compaction: contextWindow === undefined ? undefined : { enabled: true },
       signal: controller.signal,
     })) {
       if (event.type === "text-delta") {
@@ -191,6 +205,8 @@ async function main(): Promise<number> {
             event.content.length > 500 ? `${event.content.slice(0, 500)}…` : event.content;
           process.stderr.write(`  ${body}\n`);
         }
+      } else if (event.type === "compaction") {
+        writeHeadlessCompactionNotice(event, values.verbose === true);
       } else {
         process.stdout.write("\n");
         const usage = event.usage;
