@@ -121,9 +121,27 @@ export function createSdkModelAdapter(model: SdkModel): ModelAdapter {
 
 // --- adapters -------------------------------------------------------------------
 
+/**
+ * Known context windows in tokens for models chantier ships defaults for.
+ * Sources: GLM chat models (glm-5.3-flash:cloud among them) document a 128K
+ * context, i.e. 131072 tokens; Anthropic documents 200K input tokens (200000)
+ * for claude-sonnet-4-5. Consumed via `resolveAdapter` into the adapter
+ * options; threading into `ModelAdapter` metadata waits on a core seam.
+ */
+export const KNOWN_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
+  "glm-5.3-flash:cloud": 131072,
+  "claude-sonnet-4-5": 200000,
+};
+
 export interface AnthropicAdapterOptions {
   apiKey?: string;
   model?: string;
+  /**
+   * Requested context window in tokens. Accepted at this seam; `ModelAdapter`
+   * (packages/core) has no metadata field yet, so the value is carried but not
+   * threaded further (tracked for integration).
+   */
+  contextWindow?: number;
 }
 
 export function createAnthropicAdapter(options: AnthropicAdapterOptions = {}): ModelAdapter {
@@ -131,7 +149,7 @@ export function createAnthropicAdapter(options: AnthropicAdapterOptions = {}): M
     options.apiKey ?? process.env.CHANTIER_ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error(
-      "No Anthropic API key. Set CHANTIER_ANTHROPIC_API_KEY or run `chantier auth` (coming in v0.2).",
+      "No Anthropic API key. Run `chantier auth login --provider anthropic`, set ANTHROPIC_API_KEY, or set anthropic.apiKey in ~/.chantier/config.json.",
     );
   }
   return createSdkModelAdapter(createAnthropic({ apiKey })(options.model ?? "claude-sonnet-4-5"));
@@ -140,14 +158,22 @@ export function createAnthropicAdapter(options: AnthropicAdapterOptions = {}): M
 export interface OllamaAdapterOptions {
   baseUrl?: string;
   model?: string;
+  /** Optional API key for remote OpenAI-compatible endpoints; local Ollama ignores it. */
+  apiKey?: string;
+  /** Requested context window in tokens (see AnthropicAdapterOptions note). */
+  contextWindow?: number;
 }
 
 export function createOllamaAdapter(options: OllamaAdapterOptions = {}): ModelAdapter {
-  // OpenAI-compatible clients require a non-empty key; Ollama ignores it.
+  // OpenAI-compatible clients require a non-empty key; local Ollama ignores
+  // it, remote endpoints honor it. includeUsage makes the AI SDK surface
+  // prompt/completion token usage for openai-compatible backends (flag-gated
+  // upstream; without it the finish event reports zeroed usage).
   const provider = createOpenAICompatible({
     name: "ollama",
     baseURL: options.baseUrl ?? "http://127.0.0.1:11434/v1",
-    apiKey: "ollama",
+    apiKey: options.apiKey ?? process.env.OPENAI_API_KEY ?? "ollama",
+    includeUsage: true,
   });
   return createSdkModelAdapter(provider(options.model ?? "llama3.2"));
 }
@@ -156,22 +182,42 @@ export function createOllamaAdapter(options: OllamaAdapterOptions = {}): ModelAd
 
 export interface ProviderConfig {
   provider?: string;
-  ollama?: { baseUrl?: string; model?: string };
-  anthropic?: { apiKey?: string; model?: string };
+  ollama?: { baseUrl?: string; model?: string; apiKey?: string; contextWindow?: number };
+  anthropic?: { apiKey?: string; model?: string; contextWindow?: number };
 }
 
-/** Resolves the adapter from merged config; `providerOverride` wins over config. */
-export function resolveAdapter(config: ProviderConfig, providerOverride?: string): ModelAdapter {
+/**
+ * Resolves the adapter from merged config; `providerOverride` wins over
+ * config. `apiKey` is the CLI-resolved key (config.json → auth.json); when
+ * omitted, the adapters fall back to config slots and env vars themselves.
+ */
+export function resolveAdapter(
+  config: ProviderConfig,
+  providerOverride?: string,
+  apiKey?: string,
+): ModelAdapter {
   const provider = providerOverride ?? config.provider ?? "ollama";
   if (provider === "ollama") {
     const ollama = config.ollama ?? {};
-    return createOllamaAdapter({ baseUrl: ollama.baseUrl, model: ollama.model });
+    return createOllamaAdapter({
+      baseUrl: ollama.baseUrl,
+      model: ollama.model,
+      apiKey: apiKey ?? ollama.apiKey,
+      contextWindow: ollama.contextWindow ?? knownContextWindow(ollama.model),
+    });
   }
   if (provider === "anthropic") {
     return createAnthropicAdapter({
-      apiKey: config.anthropic?.apiKey,
+      apiKey: apiKey ?? config.anthropic?.apiKey,
       model: config.anthropic?.model,
+      contextWindow: config.anthropic?.contextWindow ?? knownContextWindow(config.anthropic?.model),
     });
   }
   throw new Error(`Unknown provider "${provider}". Known providers: ollama, anthropic.`);
+}
+
+/** Documented context window for a model id, or undefined for unknown models. */
+function knownContextWindow(model: string | undefined): number | undefined {
+  if (model === undefined) return undefined;
+  return KNOWN_MODEL_CONTEXT_WINDOWS[model];
 }

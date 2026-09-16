@@ -91,7 +91,7 @@ describe("adapter event mapping", () => {
 });
 
 describe("resolveAdapter", () => {
-  it("throws the actionable missing-key error for anthropic without a key", () => {
+  it("throws the corrective missing-key error for anthropic without a key", () => {
     const saved = {
       chantier: process.env.CHANTIER_ANTHROPIC_API_KEY,
       plain: process.env.ANTHROPIC_API_KEY,
@@ -100,11 +100,26 @@ describe("resolveAdapter", () => {
     delete process.env.ANTHROPIC_API_KEY;
     try {
       expect(() => resolveAdapter({ provider: "anthropic" })).toThrow(
-        "No Anthropic API key. Set CHANTIER_ANTHROPIC_API_KEY or run `chantier auth` (coming in v0.2).",
+        "No Anthropic API key. Run `chantier auth login --provider anthropic`, set ANTHROPIC_API_KEY, or set anthropic.apiKey in ~/.chantier/config.json.",
       );
     } finally {
       if (saved.chantier) process.env.CHANTIER_ANTHROPIC_API_KEY = saved.chantier;
       if (saved.plain) process.env.ANTHROPIC_API_KEY = saved.plain;
+    }
+  });
+
+  it("builds the anthropic adapter from the CLI-resolved key without env", () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      expect(() =>
+        resolveAdapter({ provider: "anthropic" }, undefined, "sk-ant-injected"),
+      ).not.toThrow();
+      expect(() =>
+        resolveAdapter({ provider: "anthropic", anthropic: { apiKey: "sk-ant-cfg" } }),
+      ).not.toThrow();
+    } finally {
+      if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved;
     }
   });
 
