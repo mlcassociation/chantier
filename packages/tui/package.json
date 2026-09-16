@@ -1,17 +1,43 @@
 {
   "name": "@chantier/tui",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "Apache-2.0",
+  "description": "Ink-based interactive terminal UI for the chantier coding agent",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mlcassociation/chantier.git"
+  },
+  "homepage": "https://github.com/mlcassociation/chantier#readme",
+  "bugs": {
+    "url": "https://github.com/mlcassociation/chantier/issues"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist"
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@chantier/core": "*",
-    "@chantier/permissions": "*",
+    "@chantier/core": "^0.3.0",
+    "@chantier/permissions": "^0.3.0",
     "ink": "7.1.1",
     "react": "^19.2.0"
   },

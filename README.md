@@ -4,6 +4,17 @@ The readable open-source coding agent. A terminal harness that turns a model int
 a coding agent: a loop, seven tools, and a deny-first permission ladder — no
 locked-in provider, no magic.
 
+## Install
+
+```sh
+npm install -g chantier
+chantier --help
+```
+
+Requires Node >= 22. First run: `chantier --help` lists the flags, and
+`chantier auth login [provider]` stores an API key (0600) or set
+`CHANTIER_ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in the environment.
+
 - **Providers pluggable.** Runs against any OpenAI-compatible endpoint (Ollama,
   vLLM, …) and Anthropic out of the box; the `ModelAdapter` seam in
   `packages/core` is the only place a provider SDK is imported.
@@ -17,7 +28,7 @@ locked-in provider, no magic.
 
 ## Status
 
-v0.1 — headless core; TUI coming.
+v0.3.0 — headless core + interactive TUI.
 
 ## Install from source
 

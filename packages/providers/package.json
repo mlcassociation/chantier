@@ -1,18 +1,44 @@
 {
   "name": "@chantier/providers",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "Apache-2.0",
+  "description": "Model provider adapters (Anthropic, OpenAI-compatible) for the chantier coding agent",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mlcassociation/chantier.git"
+  },
+  "homepage": "https://github.com/mlcassociation/chantier#readme",
+  "bugs": {
+    "url": "https://github.com/mlcassociation/chantier/issues"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist"
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.54",
     "@ai-sdk/openai-compatible": "3.0.49",
-    "@chantier/core": "*",
+    "@chantier/core": "^0.3.0",
     "ai": "7.0.102"
   },
   "devDependencies": {

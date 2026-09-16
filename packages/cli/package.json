@@ -1,6 +1,6 @@
 {
   "name": "chantier",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "The readable open-source coding agent",
@@ -8,17 +8,39 @@
     "chantier": "dist/index.mjs"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mlcassociation/chantier.git"
+  },
+  "homepage": "https://github.com/mlcassociation/chantier#readme",
+  "bugs": {
+    "url": "https://github.com/mlcassociation/chantier/issues"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --clean --out-dir dist && chmod +x dist/index.mjs"
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist && chmod +x dist/index.mjs",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@chantier/core": "*",
-    "@chantier/permissions": "*",
-    "@chantier/providers": "*",
-    "@chantier/tools": "*",
-    "@chantier/tui": "*",
+    "@chantier/core": "^0.3.0",
+    "@chantier/permissions": "^0.3.0",
+    "@chantier/providers": "^0.3.0",
+    "@chantier/tools": "^0.3.0",
+    "@chantier/tui": "^0.3.0",
     "chalk": "5.6.2",
     "ink": "7.1.1",
     "react": "^19.2.0"

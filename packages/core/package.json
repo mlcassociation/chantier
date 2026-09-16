@@ -1,16 +1,42 @@
 {
   "name": "@chantier/core",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "Apache-2.0",
+  "description": "Agent loop, session store, and model-adapter seam for the chantier coding agent",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mlcassociation/chantier.git"
+  },
+  "homepage": "https://github.com/mlcassociation/chantier#readme",
+  "bugs": {
+    "url": "https://github.com/mlcassociation/chantier/issues"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist"
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@chantier/permissions": "*"
+    "@chantier/permissions": "^0.3.0"
   },
   "devDependencies": {
     "tsdown": "0.23.0"

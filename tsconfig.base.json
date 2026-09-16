@@ -3,7 +3,7 @@
     "target": "ES2024",
     "allowImportingTsExtensions": true,
     "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "customConditions": ["development"],
     "strict": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
