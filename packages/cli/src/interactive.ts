@@ -110,7 +110,11 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
   let exitCode = 0;
   for (;;) {
     const task = await store.awaitTask();
-    if (task === null) break;
+    if (task === null) {
+      // finish() from Ctrl-C quits with the interrupted-code semantics.
+      if (abortKind === "ctrl-c") exitCode = 130;
+      break;
+    }
     abortKind = "escape" as AbortKind;
     currentController = new AbortController();
     const outcome = await driveAgent(store, deps, sink, task, currentController.signal);
