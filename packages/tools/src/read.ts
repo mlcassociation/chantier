@@ -6,6 +6,7 @@ import {
   denyReadMessage,
   formatNumbered,
   isDenyReadPath,
+  MAX_TOOL_OUTPUT_CHARS,
   requireString,
   resolveInCwd,
   truncateOutput,
@@ -16,7 +17,8 @@ const DEFAULT_LINE_LIMIT = 2000;
 export const readTool: ToolDefinition = {
   name: "read",
   description:
-    "Read a file as numbered text (1-indexed). With offset/limit you can window large files. " +
+    "Read a file as numbered text (1-indexed). With offset/limit you can window large files; when output is " +
+    "cut short the result ends with a continuation notice naming the offset to resume from. " +
     "Passing a directory path lists its entries (depth 1). Protected paths (.env*, *.pem, id_rsa*, ~/.ssh) are refused.",
   inputSchema: {
     type: "object",
@@ -57,9 +59,33 @@ export const readTool: ToolDefinition = {
         ? Math.floor(input.limit)
         : DEFAULT_LINE_LIMIT;
     const text = await readFile(resolved, "utf8");
-    return truncateOutput(formatNumbered(text, offset, limit));
+    return readFileWindow(text, offset, limit);
   },
 };
+/**
+ * Windows `text` into numbered lines and appends the continuation notice when the
+ * window (line limit or the char cap) cuts the file before its end.
+ */
+function readFileWindow(text: string, offset: number, limit: number): string {
+  const total = text.split("\n").length;
+  const start = Math.max(1, offset);
+  if (start > total) {
+    return `Error: offset ${offset} is past the end of the file (${total} lines). Re-read with a smaller offset.`;
+  }
+  const end = Math.min(total, start - 1 + limit);
+  let numbered = formatNumbered(text, offset, limit);
+  let shownEnd = end;
+  if (numbered.length > MAX_TOOL_OUTPUT_CHARS) {
+    const cut = numbered.slice(0, MAX_TOOL_OUTPUT_CHARS);
+    const lastNewline = cut.lastIndexOf("\n");
+    numbered = lastNewline === -1 ? cut : cut.slice(0, lastNewline);
+    shownEnd = start - 1 + numbered.split("\n").length;
+  }
+  if (shownEnd < total) {
+    numbered += `\n[truncated \u2014 showing lines ${start}\u2013${shownEnd} of ${total}; re-read with offset=${shownEnd + 1} for the continuation]`;
+  }
+  return numbered;
+}
 
 /**
  * Corrective prose for a missing path: list nearby files so the model can recover.
