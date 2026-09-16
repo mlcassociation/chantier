@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import path from "node:path";
 import process from "node:process";
 import {
   buildSystemPrompt,
@@ -18,20 +15,21 @@ import {
   createDenyAllSink,
   createPermissionEngine,
   createRememberingEngine,
-  type PermissionRules,
 } from "@chantier/permissions";
-import { type ProviderConfig, resolveAdapter } from "@chantier/providers";
+import { resolveAdapter } from "@chantier/providers";
 import { buildTools } from "@chantier/tools";
 import { type CliArgValues, parseCliArgs } from "./args.ts";
+import {
+  authProviderForAdapter,
+  configKeyFor,
+  resolveProviderKey,
+  runAuthCommand,
+} from "./auth-commands.ts";
 import { disableColors } from "./color.ts";
+import { loadConfig, loadSettings } from "./config.ts";
 import { runInteractive } from "./interactive.ts";
 
 const VERSION = "0.1.0";
-const DEFAULT_CONFIG: ProviderConfig = {
-  provider: "ollama",
-  ollama: { baseUrl: "http://127.0.0.1:11434/v1", model: "glm-5.3-flash:cloud" },
-  anthropic: { model: "claude-sonnet-4-5" },
-};
 
 const USAGE = `chantier ${VERSION} — the readable open-source coding agent (headless core)
 
@@ -51,13 +49,23 @@ Options:
       --version          Print the version
   -h, --help             Show this help
 
+Auth:     chantier auth login [provider]   store an API key in ~/.chantier/auth.json (0600)
+          chantier auth status             masked keys + source per provider
+          chantier auth logout [provider]  remove a stored key
+          login flags: --provider <p>, --api-key-file <path> ("-" reads stdin)
+          key order: config.json apiKey → auth.json → ANTHROPIC_API_KEY / OPENAI_API_KEY
+
 Config:   ~/.chantier/config.json   (see examples/config.json)
 Settings: ~/.chantier/settings.json ← .chantier/settings.json (allow/ask/deny rules)`;
 
 async function main(): Promise<number> {
+  const argv = process.argv.slice(2);
+  if (argv[0] === "auth") {
+    return runAuthCommand(argv.slice(1));
+  }
   let values: CliArgValues;
   try {
-    values = parseCliArgs(process.argv.slice(2));
+    values = parseCliArgs(argv);
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n\n${USAGE}\n`);
     return 2;
@@ -88,9 +96,23 @@ async function main(): Promise<number> {
       ? { provider: undefined, model: undefined }
       : parseModelSpec(values.model);
 
+  const provider = providerOverride ?? config.provider ?? "ollama";
+  const model =
+    modelOverride ?? (provider === "ollama" ? config.ollama?.model : config.anthropic?.model) ?? "";
+
   let adapter: ModelAdapter;
   try {
-    adapter = resolveAdapter(config, providerOverride);
+    // Key order: explicit config.json apiKey → auth.json → standard env vars
+    // (the env fallback stays inside the adapter factories). No key is echoed.
+    const authProvider = authProviderForAdapter(provider);
+    const resolution =
+      authProvider === undefined
+        ? undefined
+        : await resolveProviderKey({
+            provider: authProvider,
+            configApiKey: configKeyFor(config, provider),
+          });
+    adapter = resolveAdapter(config, providerOverride, resolution?.key);
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n`);
     return 2;
@@ -101,9 +123,6 @@ async function main(): Promise<number> {
   const tools = buildTools();
 
   const cwd = process.cwd();
-  const provider = providerOverride ?? config.provider ?? "ollama";
-  const model =
-    modelOverride ?? (provider === "ollama" ? config.ollama?.model : config.anthropic?.model) ?? "";
   let session: SessionStore;
   let messages: Message[] = [];
   if (values.continue === true) {
@@ -206,66 +225,6 @@ function parseModelSpec(spec: string): { provider?: string; model?: string } {
     return tail === undefined ? { provider: head } : { provider: head, model: tail };
   }
   return { model: spec };
-}
-
-async function loadConfig(): Promise<ProviderConfig> {
-  const file = path.join(homedir(), ".chantier", "config.json");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(file, "utf8"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      process.stderr.write(
-        "No ~/.chantier/config.json; using Ollama defaults (http://127.0.0.1:11434/v1). See examples/config.json.\n",
-      );
-      return DEFAULT_CONFIG;
-    }
-    throw new Error(`~/.chantier/config.json is not valid JSON: ${(error as Error).message}`);
-  }
-  // JSON.parse boundary: merged value is structurally validated by its consumers.
-  return deepMerge(DEFAULT_CONFIG, parsed) as ProviderConfig;
-}
-
-async function loadSettings(): Promise<PermissionRules> {
-  const home = await readJsonObjectSafe(path.join(homedir(), ".chantier", "settings.json"));
-  const project = await readJsonObjectSafe(path.join(process.cwd(), ".chantier", "settings.json"));
-  const merged = deepMerge(home, project) as Record<string, unknown>;
-  return {
-    allow: asStringArray(merged.allow),
-    ask: asStringArray(merged.ask),
-    deny: asStringArray(merged.deny),
-  };
-}
-
-async function readJsonObjectSafe(file: string): Promise<Record<string, unknown>> {
-  try {
-    return JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-/** Objects deep-merge; arrays and scalars replace. */
-function deepMerge(base: unknown, overlay: unknown): unknown {
-  if (Array.isArray(base) || Array.isArray(overlay)) return overlay ?? base;
-  if (isPlainObject(base) && isPlainObject(overlay)) {
-    const merged: Record<string, unknown> = { ...base };
-    for (const [key, value] of Object.entries(overlay)) {
-      merged[key] = key in merged ? deepMerge(merged[key], value) : value;
-    }
-    return merged;
-  }
-  return overlay ?? base;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asStringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : undefined;
 }
 
 process.exitCode = await main();
