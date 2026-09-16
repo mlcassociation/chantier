@@ -13,6 +13,12 @@ export type ApprovalDecision = {
   approved: boolean;
   /** Model-facing reason included in the denial feedback when not approved. */
   reason?: string;
+  /**
+   * Sink-to-owner hint: remember this tool for the rest of the session so
+   * later `ask` verdicts for it are short-circuited to allow. Purely a
+   * convention between sinks and their owners; the engine itself never reads it.
+   */
+  remember?: boolean;
 };
 
 /**

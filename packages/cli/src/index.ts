@@ -18,10 +18,12 @@ import {
   createAllowAllSink,
   createDenyAllSink,
   createPermissionEngine,
+  createRememberingEngine,
   type PermissionRules,
 } from "@chantier/permissions";
 import { type ProviderConfig, resolveAdapter } from "@chantier/providers";
 import { buildTools } from "@chantier/tools";
+import { runInteractive } from "./interactive.ts";
 
 const VERSION = "0.1.0";
 const DEFAULT_CONFIG: ProviderConfig = {
@@ -33,10 +35,11 @@ const DEFAULT_CONFIG: ProviderConfig = {
 const USAGE = `chantier ${VERSION} — the readable open-source coding agent (headless core)
 
 Usage:
-  chantier -p <prompt> [options]
+  chantier -p <prompt> [options]   headless run
+  chantier [options]               interactive TUI (needs a TTY)
 
 Options:
-  -p, --prompt <text>    The task for the agent (required in v0.1)
+  -p, --prompt <text>    The task for the agent (omit for the interactive TUI)
       --continue         Resume the newest session for this directory
       --model <spec>     Provider or provider/model (e.g. anthropic/claude-sonnet-4-5, ollama/glm-5.3-flash:cloud)
       --yolo             Approve every mutation automatically (headless default denies them)
@@ -88,8 +91,11 @@ async function main(): Promise<number> {
     return 0;
   }
   const prompt = values.prompt;
-  if (prompt === undefined || prompt.length === 0) {
-    process.stderr.write("Error: -p <prompt> is required in v0.1.\n\n");
+  const interactive = prompt === undefined || prompt.length === 0;
+  if (interactive && process.stdout.isTTY !== true) {
+    process.stderr.write(
+      "Error: interactive mode needs a TTY; pass -p <prompt> for headless runs.\n\n",
+    );
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
@@ -130,21 +136,40 @@ async function main(): Promise<number> {
   } else {
     session = await createSessionStore({ cwd, provider, model });
   }
-  const userMessage: Message = { role: "user", content: [{ type: "text", text: prompt }] };
-  await session.append({ type: "message", message: userMessage });
-  messages.push(userMessage);
-
   const system = await buildSystemPrompt(cwd, tools);
-  const controller = new AbortController();
-  process.on("SIGINT", () => {
-    controller.abort();
-  });
-
   const maxTurnsArg = values["max-turns"];
   if (maxTurnsArg !== undefined && (!/^\d+$/.test(maxTurnsArg) || Number(maxTurnsArg) <= 0)) {
     process.stderr.write(`Error: --max-turns must be a positive integer, got "${maxTurnsArg}".\n`);
     return 2;
   }
+  const maxTurns = maxTurnsArg === undefined ? undefined : Number(maxTurnsArg);
+
+  if (interactive) {
+    const remembering = createRememberingEngine(permission);
+    const controller = new AbortController();
+    process.on("SIGINT", () => {
+      controller.abort();
+    });
+    return runInteractive({
+      adapter,
+      tools,
+      permission: remembering,
+      session,
+      cwd,
+      system,
+      messages,
+      maxTurns,
+    });
+  }
+
+  const userMessage: Message = { role: "user", content: [{ type: "text", text: prompt ?? "" }] };
+  await session.append({ type: "message", message: userMessage });
+  messages.push(userMessage);
+
+  const controller = new AbortController();
+  process.on("SIGINT", () => {
+    controller.abort();
+  });
 
   try {
     for await (const event of runAgent({
