@@ -1,0 +1,25 @@
+{
+  "name": "chantier",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "The readable open-source coding agent",
+  "bin": {
+    "chantier": "dist/index.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --clean --out-dir dist && chmod +x dist/index.mjs"
+  },
+  "dependencies": {
+    "@chantier/core": "*",
+    "@chantier/permissions": "*",
+    "@chantier/providers": "*",
+    "@chantier/tools": "*"
+  },
+  "devDependencies": {
+    "tsdown": "0.23.0"
+  }
+}

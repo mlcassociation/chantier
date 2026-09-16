@@ -1,0 +1,10 @@
+{
+  "provider": "ollama",
+  "ollama": {
+    "baseUrl": "http://127.0.0.1:11434/v1",
+    "model": "glm-5.3-flash:cloud"
+  },
+  "anthropic": {
+    "model": "claude-sonnet-4-5"
+  }
+}

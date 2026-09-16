@@ -1,0 +1,21 @@
+{
+  "name": "@chantier/providers",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.54",
+    "@ai-sdk/openai-compatible": "3.0.49",
+    "@chantier/core": "*",
+    "ai": "7.0.102"
+  },
+  "devDependencies": {
+    "tsdown": "0.23.0"
+  }
+}

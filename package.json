@@ -1,0 +1,27 @@
+{
+  "name": "chantier-monorepo",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/permissions && tsc -p packages/core && tsc -p packages/providers && tsc -p packages/tools && tsc -p packages/cli",
+    "lint": "biome check .",
+    "fmt": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "tsdown": "0.23.0",
+    "tsx": "^4.20.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
