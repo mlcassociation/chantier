@@ -1,7 +1,18 @@
 import type { ApprovalDetail, ApprovalSink, PermissionEngine } from "@chantier/permissions";
+import {
+  type CompactionResult,
+  compactConversation,
+  compactedSummaryMessage,
+  DEFAULT_COMPACTION_KEEP_RECENT,
+  DEFAULT_COMPACTION_RESERVE,
+  estimateMessageTokens,
+  looksLikeContextOverflow,
+  shouldCompact,
+} from "./compaction.ts";
 import type { ModelAdapter } from "./model-adapter.ts";
 import type {
   AssistantMessage,
+  CompactionEntry,
   Message,
   SessionStore,
   SystemMessage,
@@ -20,6 +31,7 @@ export type AgentEvent =
       args: Record<string, unknown>;
       content: string;
     }
+  | { type: "compaction"; tokensBefore: number; tokensAfter: number; summaryChars: number }
   | {
       type: "result";
       text: string;
@@ -27,6 +39,15 @@ export type AgentEvent =
       turns: number;
       stopReason: "end_turn" | "max_turns";
     };
+
+export interface CompactionOptions {
+  /** Compaction on/off; defaults to true when `contextWindow` is set. */
+  enabled?: boolean;
+  /** Headroom kept for the model's answer; see `shouldCompact`. */
+  reserve?: number;
+  /** Verbatim tail kept after compaction, in estimated tokens. */
+  keepRecent?: number;
+}
 
 export interface RunAgentOptions {
   adapter: ModelAdapter;
@@ -41,6 +62,12 @@ export interface RunAgentOptions {
   messages?: Message[];
   maxTurns?: number;
   signal: AbortSignal;
+  /**
+   * Model context window in tokens. Undefined = compaction disabled; callers
+   * opt in by declaring the window they are targeting.
+   */
+  contextWindow?: number;
+  compaction?: CompactionOptions;
 }
 
 const HEADLESS_HINT = "rerun with --yolo or add an allow rule to .chantier/settings.json";
@@ -50,6 +77,14 @@ const HEADLESS_HINT = "rerun with --yolo or add an allow rule to .chantier/setti
  * results, never as error branching) → repeat until a turn has zero tool calls.
  * Consecutive readOnly tool calls run concurrently, in the order the model
  * emitted them; mutating calls run sequentially.
+ *
+ * Context management: when `contextWindow` is set, compaction is checked
+ * between turns (after tool results are appended, before the next stream) and
+ * once as a reactive fallback when a stream fails with a context-overflow
+ * error. Compaction replaces the in-memory context with summary + kept tail,
+ * appends one `compaction` entry plus the summary as a regular user message to
+ * the session log (the log stays append-only; `load()` is untouched), and
+ * preserves assistant tool-call / tool-result pairing.
  */
 export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEvent> {
   const maxTurns = opts.maxTurns ?? 50;
@@ -58,23 +93,132 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   const messages: Message[] = [system, ...(opts.messages ?? [])];
   const available = opts.tools.filter((tool) => !opts.permission.isRemoved(tool.name));
 
+  const contextWindow = opts.contextWindow;
+  const compactionEnabled = contextWindow !== undefined && (opts.compaction?.enabled ?? true);
+  const reserve = opts.compaction?.reserve ?? DEFAULT_COMPACTION_RESERVE;
+  const keepRecent = opts.compaction?.keepRecent ?? DEFAULT_COMPACTION_KEEP_RECENT;
+
+  /**
+   * Ordinal of each message within the session log's message-entry sequence
+   * (the header and compaction entries are not counted; null = never logged,
+   * i.e. the system message). Maintained even when compaction is off — it is
+   * then garbage but never read. Baseline alignment assumes `opts.messages`
+   * are a tail of the logged sequence (full replay or the compaction view());
+   * that holds for every flow this harness builds.
+   */
+  const ordinals: Array<number | null> = [null];
+  let nextOrdinal = 0;
+  if (compactionEnabled) {
+    const priorEntries = await opts.session.load(opts.session.id);
+    const logged = priorEntries.reduce(
+      (count, entry) => (entry.type === "message" ? count + 1 : count),
+      0,
+    );
+    const given = opts.messages ?? [];
+    const offset = Math.max(
+      0,
+      logged - given.filter((message) => message.role !== "system").length,
+    );
+    let seen = 0;
+    for (const message of given) {
+      if (message.role === "system") {
+        ordinals.push(null);
+        continue;
+      }
+      ordinals.push(offset + seen);
+      seen += 1;
+    }
+    nextOrdinal = logged;
+  } else {
+    ordinals.push(...(opts.messages ?? []).map(() => null));
+  }
+
   let usage: Usage | undefined;
   let turns = 0;
   let lastText = "";
+
+  const appendMessage = async (message: AssistantMessage | ToolResultMessage) => {
+    messages.push(message);
+    ordinals.push(nextOrdinal);
+    await opts.session.append({ type: "message", message });
+  };
+
+  type CompactionOutcome = { tokensBefore: number; tokensAfter: number; summaryChars: number };
+
+  /**
+   * Runs one compaction against the current context and rewires the live
+   * message list (system + summary message + kept tail). Never throws: a
+   * failed compaction keeps the run going uncompacted. Appends the compaction
+   * entry (which carries the summary) and the summary message to the log.
+   */
+  const runCompaction = async (): Promise<CompactionOutcome | null> => {
+    if (!compactionEnabled || contextWindow === undefined) return null;
+    let kept: CompactionResult;
+    try {
+      kept = await compactConversation({
+        adapter: opts.adapter,
+        messages,
+        keepRecent,
+        window: contextWindow,
+        reserve,
+        signal: opts.signal,
+      });
+    } catch {
+      return null;
+    }
+    if (kept.summary.length === 0) return null;
+    const keptOrdinals = ordinals.slice(kept.keptStart);
+    const entry: CompactionEntry = {
+      type: "compaction",
+      summary: kept.summary,
+      firstKeptMessageIndex: keptOrdinals[0] ?? nextOrdinal,
+      tokensBefore: kept.tokensBefore,
+      createdAt: new Date().toISOString(),
+    };
+    await opts.session.append(entry);
+    const summaryMessage = compactedSummaryMessage(kept.summary);
+    await opts.session.append({ type: "message", message: summaryMessage });
+    messages.splice(0, messages.length, system, summaryMessage, ...kept.keptMessages);
+    ordinals.splice(0, ordinals.length, null, nextOrdinal, ...keptOrdinals);
+    nextOrdinal += 1;
+    return {
+      tokensBefore: kept.tokensBefore,
+      tokensAfter: kept.estimatedAfter,
+      summaryChars: kept.summary.length,
+    };
+  };
 
   while (turns < maxTurns) {
     turns += 1;
     let turnText = "";
     const toolCalls: ToolCallBlock[] = [];
+    const turnStart = messages.length;
+    let overflowError: unknown;
 
-    for await (const event of opts.adapter.stream(messages, available, opts.signal)) {
-      if (event.type === "text-delta") {
-        turnText += event.text;
-        yield event;
-      } else if (event.type === "tool-call") {
-        toolCalls.push({ type: "tool-call", id: event.id, name: event.name, args: event.args });
-      } else {
-        usage = event.usage;
+    for (;;) {
+      turnText = "";
+      toolCalls.length = 0;
+      try {
+        for await (const event of opts.adapter.stream(messages, available, opts.signal)) {
+          if (event.type === "text-delta") {
+            turnText += event.text;
+            yield event;
+          } else if (event.type === "tool-call") {
+            toolCalls.push({ type: "tool-call", id: event.id, name: event.name, args: event.args });
+          } else {
+            usage = event.usage;
+          }
+        }
+        break;
+      } catch (error) {
+        if (!looksLikeContextOverflow(error)) throw error;
+        // Reactive fallback: one compaction + retry; a second overflow
+        // surfaces the original error, not the retry's.
+        if (overflowError !== undefined) throw overflowError;
+        overflowError = error;
+        const outcome = await runCompaction();
+        if (outcome === null) throw error;
+        yield { type: "compaction", ...outcome };
       }
     }
 
@@ -85,8 +229,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
         ...toolCalls,
       ],
     };
-    messages.push(assistant);
-    await opts.session.append({ type: "message", message: assistant });
+    await appendMessage(assistant);
 
     if (toolCalls.length === 0) {
       yield { type: "result", text: turnText, usage, turns, stopReason: "end_turn" };
@@ -97,8 +240,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     for (const group of consecutiveReadOnlyGroups(toolCalls, byName)) {
       const results = await Promise.all(group.map((call) => executeCall(call, opts, byName)));
       for (const [index, result] of results.entries()) {
-        messages.push(result);
-        await opts.session.append({ type: "message", message: result });
+        await appendMessage(result);
         yield {
           type: "tool-result",
           toolCallId: result.toolCallId,
@@ -106,6 +248,19 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
           args: group[index]?.args ?? {},
           content: result.content,
         };
+      }
+    }
+
+    // Between turns: after every tool result is appended (pairs are complete,
+    // never mid-batch), before the next stream.
+    if (compactionEnabled && contextWindow !== undefined) {
+      const turnDelta = messages.slice(turnStart);
+      const tokensUsed = usage
+        ? usage.inputTokens + usage.outputTokens + estimateMessageTokens(turnDelta)
+        : estimateMessageTokens(messages);
+      if (shouldCompact({ tokensUsed, window: contextWindow, reserve, keepRecent })) {
+        const outcome = await runCompaction();
+        if (outcome !== null) yield { type: "compaction", ...outcome };
       }
     }
   }

@@ -44,6 +44,34 @@ export interface ToolResultMessage {
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage;
 
+// --- Compaction ---------------------------------------------------------------
+
+/**
+ * Marker appended to the JSONL when a compaction replaces the older part of the
+ * conversation with a summary. The log stays append-only: nothing is rewritten
+ * or deleted, `load()` always returns everything (TUI/rewind keep working), and
+ * `view()` folds compaction entries into the model-facing context.
+ *
+ * `firstKeptMessageIndex` is the 0-based ordinal of the first `message` entry
+ * that is kept verbatim after this compaction (the session header and
+ * compaction entries themselves are not counted). Ordinals are stable because
+ * the log is append-only — entries are never reordered, rewritten, or removed —
+ * so no entry ids are needed, and `--continue`/fork of an old file stays safe.
+ *
+ * Convention: the compaction entry is immediately followed by a regular `user`
+ * message entry carrying the summary text prefixed with COMPACTED_MARKER. The
+ * summary message is a real log entry (its ordinal is always >=
+ * firstKeptMessageIndex), so `view()` returns it naturally and resume flows
+ * stay plain `Message[]` with no synthetic messages.
+ */
+export interface CompactionEntry {
+  type: "compaction";
+  summary: string;
+  firstKeptMessageIndex: number;
+  tokensBefore: number;
+  createdAt: string;
+}
+
 // --- Model events (the provider seam payload) ---------------------------------
 
 export type StopReason = "end_turn" | "max_turns" | "error";
@@ -98,11 +126,19 @@ export type SessionHeader = {
   createdAt: string;
 };
 
-export type SessionEntry = SessionHeader | { type: "message"; message: Message };
+export type SessionEntry = SessionHeader | { type: "message"; message: Message } | CompactionEntry;
 
+/**
+ * `view` folds the append-only log into the model-facing context: the summary
+ * message convention replaces everything before the last compaction's
+ * `firstKeptMessageIndex`. Optional so lightweight fakes (tests) remain valid;
+ * real stores from this module always implement it, and
+ * `sessionView(store.load(id))` is the equivalent free-function form.
+ */
 export interface SessionStore {
   id: string;
   dir: string;
   append(entry: SessionEntry): Promise<void>;
   load(id: string): Promise<SessionEntry[]>;
+  view?(id: string): Promise<Message[]>;
 }
