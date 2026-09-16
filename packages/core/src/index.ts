@@ -18,7 +18,11 @@ export {
 export { buildSystemPrompt } from "./context.ts";
 export type { ModelAdapter } from "./model-adapter.ts";
 export {
+  alignedMessageOrdinals,
+  type CompactionOutcome,
+  type CompactSessionOptions,
   type CreateSessionOptions,
+  compactSession,
   createSessionStore,
   DEFAULT_SESSIONS_ROOT,
   loadNewestSessionId,

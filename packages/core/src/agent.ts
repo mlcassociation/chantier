@@ -10,6 +10,7 @@ import {
   shouldCompact,
 } from "./compaction.ts";
 import type { ModelAdapter } from "./model-adapter.ts";
+import { alignedMessageOrdinals } from "./session.ts";
 import type {
   AssistantMessage,
   CompactionEntry,
@@ -102,9 +103,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
    * Ordinal of each message within the session log's message-entry sequence
    * (the header and compaction entries are not counted; null = never logged,
    * i.e. the system message). Maintained even when compaction is off — it is
-   * then garbage but never read. Baseline alignment assumes `opts.messages`
-   * are a tail of the logged sequence (full replay or the compaction view());
-   * that holds for every flow this harness builds.
+   * then garbage but never read.
    */
   const ordinals: Array<number | null> = [null];
   let nextOrdinal = 0;
@@ -115,18 +114,30 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
       0,
     );
     const given = opts.messages ?? [];
-    const offset = Math.max(
-      0,
-      logged - given.filter((message) => message.role !== "system").length,
-    );
-    let seen = 0;
-    for (const message of given) {
-      if (message.role === "system") {
-        ordinals.push(null);
-        continue;
+    // Preferred alignment: exact suffix match against the log's view order.
+    // Handles the compaction view, where the hoisted summary message breaks
+    // the naive suffix offset (its log ordinal is late but it is ordered
+    // first, so a pure count-based offset would assign wrong ordinals and a
+    // later compaction entry could split a tool pair on the next view()).
+    const aligned = alignedMessageOrdinals(priorEntries, given);
+    if (aligned !== null) {
+      ordinals.push(...aligned);
+    } else {
+      // Fallback (full replay of a compacted log and foreign inputs): assume
+      // the given messages are the last `given.length` logged entries.
+      const offset = Math.max(
+        0,
+        logged - given.filter((message) => message.role !== "system").length,
+      );
+      let seen = 0;
+      for (const message of given) {
+        if (message.role === "system") {
+          ordinals.push(null);
+          continue;
+        }
+        ordinals.push(offset + seen);
+        seen += 1;
       }
-      ordinals.push(offset + seen);
-      seen += 1;
     }
     nextOrdinal = logged;
   } else {

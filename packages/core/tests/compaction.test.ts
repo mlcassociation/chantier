@@ -25,7 +25,12 @@ import {
   serializeConversation,
   shouldCompact,
 } from "../src/compaction.ts";
-import { createSessionStore, sessionView } from "../src/session.ts";
+import {
+  alignedMessageOrdinals,
+  compactSession,
+  createSessionStore,
+  sessionView,
+} from "../src/session.ts";
 
 function scriptedAdapter(
   turns: Array<ModelEvent[] | Error>,
@@ -656,5 +661,137 @@ describe("runAgent compaction", () => {
       ),
     ).rejects.toThrow("input length exceeds context window");
     expect(session.lines.some((entry) => entry.type === "compaction")).toBe(false);
+  });
+});
+
+describe("alignedMessageOrdinals", () => {
+  it("matches a plain log exactly", () => {
+    const entries: SessionEntry[] = [
+      { type: "message", message: userMessage("a") },
+      { type: "message", message: userMessage("b") },
+    ];
+    expect(alignedMessageOrdinals(entries, [userMessage("a"), userMessage("b")])).toEqual([0, 1]);
+  });
+
+  it("aligns the compaction view by true ordinals (hoisted summary keeps its late ordinal)", () => {
+    const summary = compactedSummaryMessage("s");
+    const entries: SessionEntry[] = [
+      { type: "message", message: userMessage("u0") },
+      { type: "message", message: userMessage("u1") },
+      {
+        type: "compaction",
+        summary: "s",
+        firstKeptMessageIndex: 1,
+        tokensBefore: 900,
+        createdAt: "t",
+      },
+      { type: "message", message: summary },
+      { type: "message", message: userMessage("u2") },
+    ];
+    const view = sessionView(entries); // [summary, u1, u2]
+    expect(alignedMessageOrdinals(entries, view)).toEqual([2, 1, 3]);
+  });
+
+  it("returns null for a full replay of a compacted log (caller falls back)", () => {
+    const summary = compactedSummaryMessage("s");
+    const entries: SessionEntry[] = [
+      { type: "message", message: userMessage("u0") },
+      {
+        type: "compaction",
+        summary: "s",
+        firstKeptMessageIndex: 1,
+        tokensBefore: 900,
+        createdAt: "t",
+      },
+      { type: "message", message: summary },
+    ];
+    const fullReplay = entries
+      .filter((entry) => entry.type === "message")
+      .map((entry) => entry.message);
+    expect(alignedMessageOrdinals(entries, fullReplay)).toBeNull();
+  });
+});
+
+describe("compactSession", () => {
+  it("compacts, appends entry + summary with the true boundary, and folds the view", async () => {
+    const session = memorySession();
+    const logged: Message[] = [
+      userMessage("u".repeat(800)),
+      assistantWithCalls({ id: "c1", name: "read" }),
+      toolResult("c1", "read", "r1"),
+      userMessage("v".repeat(800)),
+      assistantWithCalls({ id: "c2", name: "read" }),
+      toolResult("c2", "read", "r2"),
+    ];
+    for (const message of logged) await session.append({ type: "message", message });
+    const adapter = scriptedAdapter([summarizeTurn]);
+
+    const outcome = await compactSession({
+      store: session,
+      adapter,
+      system: "You are chantier.",
+      contextWindow: 500,
+      reserve: 50,
+      keepRecent: 200,
+    });
+
+    // ~411 estimated tokens >= 500 - 50 - 200; the recent tail (u1, a2, r2)
+    // stays verbatim, u0/a1/r1 are summarized.
+    expect(outcome).toEqual({
+      tokensBefore: expect.any(Number),
+      tokensAfter: expect.any(Number),
+      summaryChars: "SUMMARY TEXT".length,
+    });
+    expect(outcome?.tokensAfter).toBeLessThan(outcome?.tokensBefore ?? 0);
+    const entryIndex = session.lines.findIndex((entry) => entry.type === "compaction");
+    expect(entryIndex).toBe(6);
+    expect(session.lines[entryIndex]).toMatchObject({
+      type: "compaction",
+      firstKeptMessageIndex: 3,
+      summary: "SUMMARY TEXT",
+    });
+    expect(session.lines[entryIndex + 1]).toMatchObject({
+      type: "message",
+      message: { role: "user" },
+    });
+    const view = sessionView(await session.load(session.id));
+    expect(
+      view.map((message) => (message.role === "user" ? message.content[0]?.text : message.role)),
+    ).toEqual([`${COMPACTED_MARKER}SUMMARY TEXT`, "v".repeat(800), "assistant", "tool-result"]);
+    expectPairingIntact(view.slice(1));
+    expect(adapter.count).toBe(1);
+  });
+
+  it("returns null below the threshold and appends nothing", async () => {
+    const session = memorySession();
+    await session.append({ type: "message", message: userMessage("tiny") });
+    const adapter = scriptedAdapter([]);
+    const outcome = await compactSession({
+      store: session,
+      adapter,
+      system: "You are chantier.",
+      contextWindow: 1000,
+      reserve: 100,
+      keepRecent: 5,
+    });
+    expect(outcome).toBeNull();
+    expect(adapter.count).toBe(0);
+    expect(session.lines).toHaveLength(1);
+  });
+
+  it("returns null when nothing needs summarizing (tail already covers keepRecent)", async () => {
+    const session = memorySession();
+    await session.append({ type: "message", message: userMessage("x".repeat(4000)) });
+    const adapter = scriptedAdapter([]);
+    const outcome = await compactSession({
+      store: session,
+      adapter,
+      system: "You are chantier.",
+      contextWindow: 100_000,
+      reserve: 100,
+      keepRecent: 20_000,
+    });
+    expect(outcome).toBeNull();
+    expect(adapter.count).toBe(0);
   });
 });
