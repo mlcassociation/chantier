@@ -87,23 +87,20 @@ function patternToRegExp(pattern: string): RegExp {
     // Single pass with multi-char tokens first: sequential replaces would
     // rescan their own output ("**" expanded to ".*" has a star that the
     // single-star pass would rewrite again).
-    const source = pattern.replace(
-      /\*\*\/|(\*\*)|(\*)|(\?)|[.+^${}()|[\]\\]/g,
-      (token) => {
-        switch (token) {
-          case "**/":
-            return "(?:.*/)?";
-          case "**":
-            return ".*";
-          case "*":
-            return "[^/]*";
-          case "?":
-            return "[^/]";
-          default:
-            return `\\${token}`;
-        }
-      },
-    );
+    const source = pattern.replace(/\*\*\/|(\*\*)|(\*)|(\?)|[.+^${}()|[\]\\]/g, (token) => {
+      switch (token) {
+        case "**/":
+          return "(?:.*/)?";
+        case "**":
+          return ".*";
+        case "*":
+          return "[^/]*";
+        case "?":
+          return "[^/]";
+        default:
+          return `\\${token}`;
+      }
+    });
     compiled = new RegExp(`^${source}$`);
     patternCache.set(pattern, compiled);
   }
@@ -134,7 +131,9 @@ export function createPermissionEngine(rules: PermissionRules): PermissionEngine
     isRemoved(toolName) {
       return parsed.some(
         (rule) =>
-          rule.list === "deny" && rule.specifier === undefined && wildcardMatch(rule.tool, toolName),
+          rule.list === "deny" &&
+          rule.specifier === undefined &&
+          wildcardMatch(rule.tool, toolName),
       );
     },
   };

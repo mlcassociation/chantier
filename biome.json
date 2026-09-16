@@ -8,7 +8,8 @@
   },
   "vcs": {
     "enabled": true,
-    "useIgnoreFile": true
+    "useIgnoreFile": true,
+    "clientKind": "git"
   },
   "files": {
     "includes": ["**", "!**/dist"]

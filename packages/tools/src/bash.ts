@@ -88,7 +88,9 @@ function runShell(
     clearTimeout(timer);
     clearInterval(capTimer);
     const capNote = capped ? "\n[output capped; command killed]" : "";
-    resolve(`${stdout}${stderr ? (stdout ? "\n--- stderr ---\n" : "") + stderr : ""}${capNote}${tail}`);
+    resolve(
+      `${stdout}${stderr ? (stdout ? "\n--- stderr ---\n" : "") + stderr : ""}${capNote}${tail}`,
+    );
   };
 
   child.on("error", (error) => {
