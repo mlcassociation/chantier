@@ -75,8 +75,11 @@ function probeDecisions(query: Query): { deny: boolean; ask: boolean; allow: boo
         true,
       ) === "deny",
     ask:
-      createPermissionEngine({ ask: ASK_ONLY_SOURCE }).evaluate(query.tool, query.specifier, true) ===
-      "ask",
+      createPermissionEngine({ ask: ASK_ONLY_SOURCE }).evaluate(
+        query.tool,
+        query.specifier,
+        true,
+      ) === "ask",
     allow:
       createPermissionEngine({ allow: ALLOW_ONLY_SOURCE }).evaluate(
         query.tool,

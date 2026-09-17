@@ -15,7 +15,7 @@ export {
   serializeConversation,
   shouldCompact,
 } from "./compaction.ts";
-export { buildSystemPrompt } from "./context.ts";
+export { buildSystemPrompt, type ModelProfile, resolveModelProfile } from "./context.ts";
 export type { ModelAdapter } from "./model-adapter.ts";
 export {
   alignedMessageOrdinals,

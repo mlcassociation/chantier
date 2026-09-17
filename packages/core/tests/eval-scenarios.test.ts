@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   Message,
-  ModelEvent,
   SessionEntry,
   SessionStore,
   ToolDefinition,
@@ -129,9 +128,7 @@ describe("eval scenarios: tool-call sequences and result contracts", () => {
       [{ type: "finish", stopReason: "end_turn" }],
     ]);
     const sink = recordingSink(true);
-    const events = await collect(
-      runAgent({ ...BASE, adapter, session: memorySession(), sink }),
-    );
+    const events = await collect(runAgent({ ...BASE, adapter, session: memorySession(), sink }));
 
     const results = toolResultsOf(events);
     expect(results).toHaveLength(1);
@@ -236,7 +233,10 @@ describe("eval scenarios: tool-call sequences and result contracts", () => {
         { type: "finish", stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 5 } },
       ],
       overflow,
-      [{ type: "text-delta", text: "SUMMARY TEXT" }, { type: "finish", stopReason: "end_turn" }],
+      [
+        { type: "text-delta", text: "SUMMARY TEXT" },
+        { type: "finish", stopReason: "end_turn" },
+      ],
       [
         { type: "text-delta", text: "Recovered." },
         { type: "finish", stopReason: "end_turn" },

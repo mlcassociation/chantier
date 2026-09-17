@@ -9,11 +9,11 @@ import {
   createRememberingEngine,
 } from "@chantier/permissions";
 import { describe, expect, it } from "vitest";
+import type { ModelAdapter } from "../src/model-adapter.ts";
 import { loadNewestSessionId, resumeSessionStore } from "../src/session.ts";
 import { type SubagentDeps, spawnSubagent } from "../src/subagent.ts";
 import type {
   Message,
-  ModelAdapter,
   ModelEvent,
   SessionEntry,
   ToolContext,

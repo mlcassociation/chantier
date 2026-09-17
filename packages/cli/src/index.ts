@@ -7,6 +7,7 @@ import {
   loadNewestSessionId,
   type Message,
   type ModelAdapter,
+  resolveModelProfile,
   resumeSessionStore,
   runAgent,
   type SessionStore,
@@ -161,7 +162,7 @@ async function main(): Promise<number> {
   } else {
     session = await createSessionStore({ cwd, provider, model });
   }
-  const system = await buildSystemPrompt(cwd, tools);
+  const system = await buildSystemPrompt(cwd, tools, resolveModelProfile(model));
   const maxTurnsArg = values["max-turns"];
   if (maxTurnsArg !== undefined && (!/^\d+$/.test(maxTurnsArg) || Number(maxTurnsArg) <= 0)) {
     process.stderr.write(`Error: --max-turns must be a positive integer, got "${maxTurnsArg}".\n`);

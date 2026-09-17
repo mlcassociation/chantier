@@ -49,7 +49,11 @@ describe("sectioned prompt", () => {
   it("omitted profile is byte-identical to the default profile", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "chantier-ctx-"));
     const omitted = await buildSystemPrompt(cwd, buildTools());
-    const explicit = await buildSystemPrompt(cwd, buildTools(), resolveModelProfile("mistral-large"));
+    const explicit = await buildSystemPrompt(
+      cwd,
+      buildTools(),
+      resolveModelProfile("mistral-large"),
+    );
     expect(explicit).toBe(omitted);
   });
 
@@ -61,7 +65,11 @@ describe("sectioned prompt", () => {
     expect(glm).toContain("never loop identical retries");
     expect(glm).not.toContain("You are chantier, a terminal coding agent. You work inside");
 
-    const claude = await buildSystemPrompt(cwd, buildTools(), resolveModelProfile("claude-sonnet-4-5"));
+    const claude = await buildSystemPrompt(
+      cwd,
+      buildTools(),
+      resolveModelProfile("claude-sonnet-4-5"),
+    );
     expect(claude).toContain("no scope creep");
     expect(claude).not.toContain("You are chantier, a terminal coding agent. You work inside");
   });
