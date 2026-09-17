@@ -78,7 +78,7 @@ export {
   QueuePreview,
   type QueuePreviewProps,
   queuePreviewLines,
-  RowSpec,
+  type RowSpec,
   STATUS_VERB_WIDTH,
   StatusWidget,
   type StatusWidgetProps,
