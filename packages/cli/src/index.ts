@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import process from "node:process";
 import {
   buildSystemPrompt,
@@ -30,7 +31,12 @@ import { disableColors } from "./color.ts";
 import { loadConfig, loadSettings } from "./config.ts";
 import { runInteractive, writeHeadlessCompactionNotice } from "./interactive.ts";
 
-const VERSION = "0.1.0";
+// Derived from the package manifest so the banner and --version can never
+// drift from the published version; dist/index.mjs and src resolve the same
+// relative path because require is anchored at this module's URL.
+const require = createRequire(import.meta.url);
+const pkg: { version?: string } = require("../package.json");
+const VERSION = pkg.version ?? "0.0.0-dev";
 
 const USAGE = `chantier ${VERSION} — the readable open-source coding agent (headless core)
 
