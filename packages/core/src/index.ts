@@ -31,4 +31,6 @@ export {
   sessionsDirFor,
   sessionView,
 } from "./session.ts";
+export type { SubagentDeps, SubagentResult } from "./subagent.ts";
+export { spawnSubagent } from "./subagent.ts";
 export type * from "./types.ts";
