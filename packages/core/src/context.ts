@@ -2,9 +2,10 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition } from "./types.ts";
 
-/** Tool-usage rules the model needs to drive the harness correctly. */
-const TOOL_RULES = `
-# Tool usage rules
+/**
+ * Tool-usage rules the model needs to drive the harness correctly.
+ */
+const TOOL_RULES = `# Tool usage rules
 
 - Paths are relative to the project cwd unless you pass an absolute path deliberately.
 - Protected paths (.env, .env.*, *.pem, id_rsa*, ~/.ssh) are refused by the harness; do not retry them.
@@ -18,8 +19,90 @@ const IDENTITY = `You are chantier, a terminal coding agent. You work inside the
 read before you write, make surgical edits, and explain what you did in one short paragraph at the end
 of a task. When a mutation is denied, state it plainly and continue with what is allowed.`;
 
-/** Builds the system prompt: identity + tool rules + every AGENTS.md from cwd up to the git root. */
-export async function buildSystemPrompt(cwd: string, tools: ToolDefinition[]): Promise<string> {
+/** Doing-tasks discipline shared by every model family. */
+const DOING_TASKS = `# Doing tasks
+
+- Prefer editing existing files over creating new ones.
+- Do exactly what was asked: no scope creep — no extra retries, telemetry, or
+  abstraction "while you're at it"; the real ask only.
+- Comments explain WHY, not WHAT; skip them where the code already says it.
+- Verify behavioral changes by running the changed path, not by re-reading the edit.
+- State uncertainty plainly rather than guessing.`;
+
+const DENIALS = `# Permission denials
+
+A denied tool call is final for that exact invocation: never retry the identical
+denied call. Adjust the arguments or switch the approach, or continue with what
+is allowed, and state plainly that the action was not permitted.`;
+
+/** Present in the prompt only when a tool named "task" is offered. */
+const DELEGATION = `# Delegating subtasks
+
+- Delegate self-contained subtasks with the full context the child needs in the
+  prompt (paths, constraints, acceptance); the child returns a final summary.
+- Scale the prompt effort to the subtask: brief for mechanical work, detailed
+  for design work.
+- Do not delegate single sequential edits you can do directly.`;
+
+/**
+ * Per-model-family prompt profile. Only the identity section is
+ * profile-specific; every other section is shared, fixed-order text.
+ */
+export interface ModelProfile {
+  /** Family name, for diagnostics and tests. */
+  name: string;
+  /** Replaces the default identity paragraph when present. */
+  identity?: string;
+}
+
+/** Default semantics: today's identity, unchanged. */
+const DEFAULT_PROFILE: ModelProfile = { name: "default" };
+
+// Terse-output bias, strict JSON tool arguments, one short closing paragraph,
+// and explicit adjust-don't-retry guidance — the failure modes observed with
+// the GLM chat family.
+const GLM_PROFILE: ModelProfile = {
+  name: "glm",
+  identity: `You are chantier, a terminal coding agent working directly in the user's project directory.
+Style for this model family: keep prose terse; tool arguments are strict JSON
+objects with no trailing commentary inside tool calls; finish each task with one
+short final paragraph and nothing more. When a tool call is denied or fails,
+adjust the arguments or change the approach — never loop identical retries.`,
+};
+
+const CLAUDE_PROFILE: ModelProfile = {
+  name: "claude",
+  identity: `You are chantier, a terminal coding agent working directly in the user's project directory.
+Read before you write; strongly prefer editing existing files over creating new
+ones; do exactly the task asked with no scope creep; when something is unclear,
+say so plainly instead of guessing.`,
+};
+
+/**
+ * Profile registry: family prefix match on the model id — `glm-` and `claude-`
+ * resolve their profiles, anything else the default. Prefixes match the leading
+ * id so suffixed tags (e.g. `glm-5.3-flash:cloud`) still resolve to the family.
+ */
+export function resolveModelProfile(model: string): ModelProfile {
+  if (model.startsWith("glm-")) return GLM_PROFILE;
+  if (model.startsWith("claude-")) return CLAUDE_PROFILE;
+  return DEFAULT_PROFILE;
+}
+
+/**
+ * Builds the system prompt from fixed, blank-line-joined sections: environment,
+ * identity (profile-adjustable), doing-tasks rules, denial rule, delegation
+ * (only when a `task` tool is offered), tool catalog, tool rules, and every
+ * AGENTS.md from cwd up to the git root last.
+ *
+ * `profile` omitted means the default profile: identity and tool rules keep
+ * today's semantics, new sections are purely additive.
+ */
+export async function buildSystemPrompt(
+  cwd: string,
+  tools: ToolDefinition[],
+  profile: ModelProfile = DEFAULT_PROFILE,
+): Promise<string> {
   const toolCatalog = tools
     .map(
       (tool) =>
@@ -27,18 +110,46 @@ export async function buildSystemPrompt(cwd: string, tools: ToolDefinition[]): P
     )
     .join("\n");
 
+  const sections: string[] = [
+    await environmentSection(cwd),
+    profile.identity ?? IDENTITY,
+    DOING_TASKS,
+    DENIALS,
+  ];
+  if (tools.some((tool) => tool.name === "task")) sections.push(DELEGATION);
+  sections.push(`# Available tools\n\n${toolCatalog}`, TOOL_RULES);
+
   const agentsDocs = await collectAgentsMd(cwd);
-  const agentsSection =
-    agentsDocs.length > 0
-      ? `\n# Project instructions (AGENTS.md)\n\n${agentsDocs.join("\n\n")}`
-      : "";
+  if (agentsDocs.length > 0) {
+    sections.push(`# Project instructions (AGENTS.md)\n\n${agentsDocs.join("\n\n")}`);
+  }
+  return sections.join("\n\n");
+}
 
-  return `${IDENTITY}
+/** Environment facts first; the branch line is omitted rather than fabricated. */
+async function environmentSection(cwd: string): Promise<string> {
+  const branch = await resolveBranch(await findGitRoot(path.resolve(cwd)));
+  const lines = [
+    "# Environment",
+    "",
+    `- cwd: ${cwd}`,
+    `- date: ${new Date().toISOString().slice(0, 10)} (UTC)`,
+  ];
+  if (branch !== null) lines.push(`- branch: ${branch}`);
+  return lines.join("\n");
+}
 
-# Available tools
-
-${toolCatalog}
-${TOOL_RULES}${agentsSection}`;
+/**
+ * Branch read from the filesystem, no git process spawned: `.git/HEAD` with
+ * `ref: refs/heads/<name>` yields the name; a raw sha means detached. Missing
+ * or unreadable HEAD → null → the caller omits the branch line.
+ */
+async function resolveBranch(gitRoot: string | null): Promise<string | null> {
+  if (gitRoot === null) return null;
+  const head = await readFile(path.join(gitRoot, ".git", "HEAD"), "utf8").catch(() => null);
+  if (head === null) return null;
+  const match = /^ref: refs\/heads\/(.+)$/.exec(head.trim());
+  return match?.[1] ?? "(detached)";
 }
 
 /**
