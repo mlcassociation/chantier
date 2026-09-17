@@ -20,6 +20,7 @@ import {
   startTui,
   type TuiPromptDetail,
   type TuiStore,
+  type TuiStoreV5,
 } from "@chantier/tui";
 
 export interface InteractiveDeps {
@@ -249,20 +250,39 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
   };
   let abortKind: AbortKind = "escape";
   let currentController: AbortController | null = null;
+  // v0.5: the store gains the §1 contract (items/queued/running/usage). In
+  // this tree createTuiStore still returns the v0.4 shape, so the loop
+  // consumes the frozen intersection; the cast collapses once store.ts
+  // lands the contract (same integration rule as the markdown import).
   const store = createTuiStore({
     onAbort: (kind) => {
       abortKind = kind;
       currentController?.abort();
     },
-  });
+  }) as TuiStore & TuiStoreV5;
   // Terminal bell when an approval card demands attention (SR mode only);
   // the sink forwards any diff attachment on the request into the TUI.
   const sink = createTuiSink(store, { permission: deps.permission, bell });
   const tui = startTui(store, { screenReader });
 
+  /**
+   * §6d drain: queued texts join with blank lines into the next composite
+   * task, in push order. Called the moment a run settles — including right
+   * after an esc-interrupt (CC semantics: interrupt, then the queued
+   * message sends).
+   */
+  const drainQueue = (): string | null => {
+    const pending = store.queued.slice();
+    if (pending.length === 0) return null;
+    while (store.queued.length > 0) store.dropQueued();
+    return pending.join("\n\n");
+  };
+
   let exitCode = 0;
+  let pendingTask: string | null = null;
   for (;;) {
-    const task = await store.awaitTask();
+    const task = pendingTask ?? (await store.awaitTask());
+    pendingTask = null;
     if (task === null) {
       // finish() from Ctrl-C quits with the interrupted-code semantics.
       if (abortKind === "ctrl-c") exitCode = 130;
@@ -274,7 +294,9 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
       await compactTaskContext(store, deps, { manual: true, signal: currentController.signal });
       continue;
     }
+    store.setRunning({ sinceMs: Date.now() });
     const outcome = await driveAgent(store, deps, sink, task, currentController.signal);
+    store.setRunning(null);
     store.flushStream();
     // Rebuild the conversation from the session: runAgent appends assistant and
     // tool-result messages to the session but never to deps.messages, and a
@@ -294,6 +316,9 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     }
     // A finished (non-aborted) run hands attention back: ring the bell.
     if (outcome !== "aborted") bell();
+    // §6d: the run has settled — hand queued texts to the next iteration,
+    // including right after an esc-interrupt.
+    pendingTask = drainQueue();
   }
   store.finish();
   await tui.waitUntilExit();

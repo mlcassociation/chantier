@@ -1,8 +1,8 @@
-import { mkdir, appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Box, Text, useInput, usePaste } from "ink";
-import { createElement, useRef, type ReactNode } from "react";
+import { createElement, type ReactNode, useRef } from "react";
 import { matches } from "./keys.ts";
 import type { TuiSymbols } from "./symbols.ts";
 
@@ -56,7 +56,6 @@ export type EditorAction =
  */
 export function applyEditorAction(state: EditorState, action: EditorAction): EditorState {
   const len = state.text.length;
-  const cursor = Math.min(state.cursor, len);
   switch (action) {
     case "home":
       return { text: state.text, cursor: 0 };
@@ -137,10 +136,9 @@ export interface HistoryStore {
   reset(): void;
 }
 
-export function createHistoryStore(opts: {
-  entries?: readonly string[];
-  file?: string;
-} = {}): HistoryStore {
+export function createHistoryStore(
+  opts: { entries?: readonly string[]; file?: string } = {},
+): HistoryStore {
   const entries: string[] = [...(opts.entries ?? [])];
   let index: number | null = null;
   return {
@@ -200,9 +198,7 @@ export async function loadHistory(file: string): Promise<string[]> {
         ) {
           texts.push((parsed as { text: string }).text);
         }
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return texts;
   } catch {
@@ -306,18 +302,15 @@ export function TaskInput({
     if (matches(event, "app.quit")) {
       if (!running || quitArmed.current) {
         quitArmed.current = false;
-        if (quitTimer.current !== null) clearTimeout(quitTimer.current);
-        // Expand held paste text BEFORE dropping the chunk map: the submit
-        // must carry the full pasted content, not the chip markers (§6e).
-        const expanded = expandPasteChips(editor.text, pasteChunks.current);
-        pasteChunks.current.clear();
-        onSubmit(expanded);
+        clearTimeout(quitTimer.current);
+        // ctrl-c quits, it never submits: the host aborts the store (§6c).
+        onQuit();
         return;
       }
       quitArmed.current = true;
       onEditorChange(emptyEditor());
       onQuitArm();
-      if (quitTimer.current !== null) clearTimeout(quitTimer.current);
+      clearTimeout(quitTimer.current);
       quitTimer.current = setTimeout(() => {
         quitArmed.current = false;
         quitTimer.current = null;
@@ -327,8 +320,9 @@ export function TaskInput({
     if (matches(event, "app.redraw")) return;
     if (key.escape) {
       // §6b: input idle with text → clear the draft INTO history; empty
-      // editor → esc does nothing.
-      if (editor.text.length > 0 && history !== undefined) {
+      // editor → esc does nothing. While a run streams, esc interrupts
+      // (app-level) and must NOT eat the draft or the queue (§6d).
+      if (!running && editor.text.length > 0 && history !== undefined) {
         void history.record(editor.text);
         onEditorChange(emptyEditor());
       }
@@ -382,9 +376,15 @@ export function TaskInput({
       if (printable.length > 0) onEditorChange(editorInsert(editor, printable.join("")));
     }
     if (key.return || bundledReturn) {
-      history?.reset();
+      // Expand held paste text BEFORE dropping the chunk map: the submit
+      // must carry the full pasted content, not the chip markers (§6e).
+      const expanded = expandPasteChips(editor.text, pasteChunks.current);
       pasteChunks.current.clear();
-      onSubmit(expandPasteChips(editor.text, pasteChunks.current));
+      // Append on submit (§6f); record() collapses consecutive dupes and
+      // ignores whitespace-only drafts.
+      void history?.record(expanded);
+      history?.reset();
+      onSubmit(expanded);
     }
   });
 
@@ -401,7 +401,6 @@ export function TaskInput({
     );
   }
   const cursor = Math.min(editor.cursor, editor.text.length);
-  const atCursor = editor.text.slice(cursor, cursor + 1);
   return createElement(
     Box,
     { borderStyle: symbols.border, borderColor: "green", paddingX: 1 },
