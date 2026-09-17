@@ -12,6 +12,13 @@ export {
   type DiffPreview,
   summarizeUnifiedDiff,
 } from "./diff.ts";
+export {
+  hasMarkdownSyntax,
+  markdownDivider,
+  markdownToElements,
+  type SafeFlush,
+  takeSafeFlush,
+} from "./markdown.ts";
 export { resolveScreenReader } from "./screen-reader.ts";
 export {
   type AbortKind,
