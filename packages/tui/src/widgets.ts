@@ -2,8 +2,8 @@ import type { ApprovalRequest } from "@chantier/permissions";
 import { Box, Text, useAnimation } from "ink";
 import { createElement, type ReactNode } from "react";
 import { classifyUnifiedDiffLine, summarizeUnifiedDiff } from "./diff.ts";
-import { APPROVAL_HINT_PARTS } from "./keys.ts";
 import type { RunningState, TuiItem, UsageTotals } from "./items.ts";
+import { APPROVAL_HINT_PARTS } from "./keys.ts";
 import type { TuiSymbols } from "./symbols.ts";
 
 /**
@@ -203,18 +203,20 @@ export function statusLines(
 ): Array<RowSpec> {
   // Verb derivation: a task delegation shows "delegating" (§4b); the
   // persistent "thinking…" status wins over the default "working".
-  const verb =
-    running.detail !== undefined && running.detail.startsWith("task")
-      ? "delegating"
-      : status.startsWith("thinking")
-        ? "thinking"
-        : "working";
+  const verb = running.detail?.startsWith("task")
+    ? "delegating"
+    : status.startsWith("thinking")
+      ? "thinking"
+      : "working";
   const separator = ` ${symbols.hintSeparator} `;
   const head: RowSpec = {
     text: `${spinnerFrame(frame, symbols)} ${verb.padEnd(STATUS_VERB_WIDTH)}${separator}${formatElapsed(elapsedMs)}${separator}esc to interrupt`,
     dim: true,
   };
-  const detailLines = (running.detail ?? "").split("\n").slice(0, 3).filter((l) => l.length > 0);
+  const detailLines = (running.detail ?? "")
+    .split("\n")
+    .slice(0, 3)
+    .filter((l) => l.length > 0);
   const detail: Array<RowSpec> = detailLines.map((line) => ({
     text: `${symbols.subGlyph} ${line}`,
     dim: true,
@@ -229,9 +231,11 @@ export function StatusWidget({
   now = Date.now,
   screenReader = false,
 }: StatusWidgetProps): ReactNode {
+  // useAnimation must run unconditionally (rules of hooks); the shared timer
+  // is simply unused when the row is hidden.
+  const { frame } = useAnimation({ interval: 120 });
   // Parity §8: SR mode hides the spinner row; the result line carries stats.
   if (running === null || screenReader) return null;
-  const { frame } = useAnimation({ interval: 120 });
   return renderRows(statusLines(frame, running, status, symbols, now() - running.sinceMs));
 }
 
@@ -332,7 +336,6 @@ export function FooterBar({
 export interface QueuePreviewProps {
   readonly queued: readonly string[];
   readonly symbols: TuiSymbols;
-  readonly screenReader?: boolean;
 }
 
 export const QUEUE_PREVIEW_MAX_ROWS = 2;
@@ -349,11 +352,7 @@ export function queuePreviewLines(queued: readonly string[], symbols: TuiSymbols
   return rows;
 }
 
-export function QueuePreview({
-  queued,
-  symbols,
-  screenReader = false,
-}: QueuePreviewProps): ReactNode {
+export function QueuePreview({ queued, symbols }: QueuePreviewProps): ReactNode {
   const rows = queuePreviewLines(queued, symbols);
   if (rows.length === 0) return null;
   return createElement(
@@ -415,10 +414,15 @@ function elide(text: string, cap: number, ellipsis: string): string {
   return text.length > cap ? `${text.slice(0, cap)}${ellipsis}` : text;
 }
 
+/** The ~-shortened edit/write target path (no counts; the SR label reuses it). */
+function editTargetPath(input: unknown, cwd?: string): string {
+  return shortenPath(stringField(input, ["file_path", "path", "file"]), cwd);
+}
+
 /**
  * Humanized subject per tool (§7): edit/write → ~-shortened path + ±counts
- * from the diff detail; bash → command (80 cap); read/grep/glob → specifier;
- * task → first line of the prompt.
+ * from the diff detail; bash → command (80 cap); read/grep → the pattern,
+ * glob → its pattern; task → first line of the prompt.
  */
 export function humanizeApproval(
   tool: string,
@@ -428,7 +432,7 @@ export function humanizeApproval(
   cwd?: string,
 ): string {
   if (tool === "edit" || tool === "write") {
-    const path = shortenPath(stringField(input, ["file_path", "path", "file"]), cwd);
+    const path = editTargetPath(input, cwd);
     if (detail?.diff !== undefined && detail.diff.length > 0) {
       const preview = summarizeUnifiedDiff(detail.diff);
       return `${path}  +${preview.additions} ${symbols.minus}${preview.deletions}`;
@@ -442,6 +446,8 @@ export function humanizeApproval(
     const firstLine = stringField(input, ["prompt"]).split("\n")[0] ?? "";
     return elide(firstLine, COMMAND_CAP, symbols.ellipsis);
   }
+  if (tool === "grep") return stringField(input, ["pattern", "query", "path"]);
+  if (tool === "glob") return stringField(input, ["pattern", "path"]);
   return stringField(input, ["path", "file_path", "file", "pattern", "query", "url"]);
 }
 
@@ -453,19 +459,16 @@ export function approvalSrLabel(
   symbols: TuiSymbols,
   cwd?: string,
 ): string {
-  const subject = humanizeApproval(tool, input, detail, symbols, cwd);
   if (tool === "edit" || tool === "write") {
-    const hasDiff = detail?.diff !== undefined && detail.diff.length > 0;
-    const counts = hasDiff
-      ? (() => {
-          const preview = summarizeUnifiedDiff(
-            detail?.diff ?? "",
-          );
-          return `: +${preview.additions} -${preview.deletions}`;
-        })()
-      : "";
-    return `${tool} ${subject}${counts}`;
+    // SR parity (§8): plain ASCII signs regardless of render mode.
+    const preview =
+      detail?.diff !== undefined && detail.diff.length > 0
+        ? summarizeUnifiedDiff(detail.diff)
+        : null;
+    const counts = preview === null ? "" : `: +${preview.additions} -${preview.deletions}`;
+    return `${tool} ${editTargetPath(input, cwd)}${counts}`;
   }
+  const subject = humanizeApproval(tool, input, detail, symbols, cwd);
   return `approve ${tool} ${subject}`.trim();
 }
 

@@ -13,8 +13,9 @@ export interface TuiSymbols {
   /** Truncation ellipsis: "…" normally, "..." in ASCII mode. */
   readonly ellipsis: string;
   /**
-   * Spinner animation frames (v0.5 status widget, spec §4a). Both variants
-   * keep the same frame count so timing code is width-agnostic.
+   * Spinner animation frames (v0.5 status widget, spec §4a): the 10-frame
+   * braille cycle normally, the 4-glyph `|/-\` cycle in ASCII mode.
+   * `spinnerFrame` wraps per set, so no timing code depends on the count.
    */
   readonly spinnerFrames: readonly string[];
   /** Tool/task row bullet: "▸" normally, ">" in ASCII mode (§8 parity). */
@@ -67,7 +68,6 @@ export const ASCII_SYMBOLS: TuiSymbols = {
   arrowUp: "^",
   minus: "-",
 };
-
 
 export function resolveSymbols(ascii: boolean): TuiSymbols {
   return ascii ? ASCII_SYMBOLS : UNICODE_SYMBOLS;
