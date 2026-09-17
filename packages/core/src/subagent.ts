@@ -6,8 +6,9 @@ import {
 } from "@chantier/permissions";
 import { runAgent } from "./agent.ts";
 import { buildSystemPrompt } from "./context.ts";
+import type { ModelAdapter } from "./model-adapter.ts";
 import { createSessionStore } from "./session.ts";
-import type { Message, ModelAdapter, ToolContext, ToolDefinition } from "./types.ts";
+import type { Message, ToolContext, ToolDefinition } from "./types.ts";
 
 /** The returned summary is capped at 50 KiB; the full transcript stays in the child session. */
 const SUMMARY_CAP_CHARS = 50 * 1024;
