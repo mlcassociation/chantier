@@ -112,6 +112,7 @@ export function hasMarkdownSyntax(text: string): boolean {
  * adapter round-trip); ink renders the raw escape bytes as garbage, so fenced
  * content is stripped before display. No ANSI passthrough, ever.
  */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escape codes is this rule's whole purpose; the ESC byte must be matched literally
 const ANSI_RE = /\u001B\[[0-9;:?]*[A-Za-z]|\u001B/g;
 function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
