@@ -16,6 +16,7 @@ export {
   resolveInCwd,
   truncateOutput,
 } from "./common.ts";
+export { createTaskTool } from "./task.ts";
 export { htmlToText } from "./webfetch.ts";
 
 /** The seven v0.1 built-in tools. */
