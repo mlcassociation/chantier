@@ -19,7 +19,7 @@ import {
   createRememberingEngine,
 } from "@chantier/permissions";
 import { KNOWN_MODEL_CONTEXT_WINDOWS, resolveAdapter } from "@chantier/providers";
-import { buildTools } from "@chantier/tools";
+import { buildTools, createTaskTool } from "@chantier/tools";
 import { type CliArgValues, parseCliArgs } from "./args.ts";
 import {
   authProviderForAdapter,
@@ -132,9 +132,17 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const permission = createPermissionEngine(await loadSettings());
+  const settings = await loadSettings();
+  const permission = createPermissionEngine(settings);
   const sink = values.yolo === true ? createAllowAllSink() : createDenyAllSink();
-  const tools = buildTools();
+  // Phase A depth cap: the task tool's children get the builtin set, which
+  // contains no task tool, so recursion is impossible by construction.
+  // contextWindow wiring for children is post-merge integration work.
+  const builtinTools = buildTools();
+  const tools = [
+    ...builtinTools,
+    createTaskTool({ adapter, rules: settings, sink, provider, model, tools: builtinTools }),
+  ];
 
   const cwd = process.cwd();
   let session: SessionStore;
