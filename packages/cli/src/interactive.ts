@@ -119,7 +119,10 @@ export async function compactTaskContext(
 ): Promise<void> {
   if (deps.contextWindow === undefined) {
     if (options.manual === true) {
-      store.pushItem({ kind: "info", text: "compaction unavailable: no context window for this model" });
+      store.pushItem({
+        kind: "info",
+        text: "compaction unavailable: no context window for this model",
+      });
     }
     return;
   }

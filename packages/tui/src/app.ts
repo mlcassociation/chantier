@@ -129,7 +129,12 @@ export function TuiApp({ store }: { store: TuiStore }) {
 
 /** Renders one finalized transcript item (spec §1). Tool rows keep the v0.4
  * inline rendering for now — the integration wires Worker B's ToolRow ladder. */
-function itemNode(item: TuiItem, index: number, symbols: TuiSymbols, screenReader: boolean): ReactNode {
+function itemNode(
+  item: TuiItem,
+  index: number,
+  symbols: TuiSymbols,
+  screenReader: boolean,
+): ReactNode {
   switch (item.kind) {
     case "markdown":
       return createElement(

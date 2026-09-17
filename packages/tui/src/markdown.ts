@@ -21,15 +21,16 @@ const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
 
 function fenceMarker(line: string): string | null {
   const match = FENCE_OPEN_RE.exec(line);
-  return match === null ? null : match[1];
+  return match === null ? null : (match[1] ?? null);
 }
 
 /** A closing fence is the same marker run plus optional whitespace, nothing else. */
 function closesFence(line: string, marker: string): boolean {
   const rest = line.replace(/^ {0,3}/, "");
-  if (!rest.startsWith(marker[0])) return false;
+  const first = marker[0];
+  if (first === undefined || !rest.startsWith(first)) return false;
   let run = 0;
-  while (run < rest.length && rest[run] === marker[0]) run += 1;
+  while (run < rest.length && rest[run] === first) run += 1;
   return run >= marker.length && rest.slice(run).trim() === "";
 }
 
@@ -59,6 +60,7 @@ export function takeSafeFlush(buffer: string): SafeFlush {
 
   for (let k = 0; k < lines.length; k += 1) {
     const line = lines[k];
+    if (line === undefined) break;
     if (inFence) {
       if (closesFence(line, openMarker)) {
         inFence = false;
@@ -81,11 +83,11 @@ export function takeSafeFlush(buffer: string): SafeFlush {
   }
 
   if (lastBoundaryLine >= 0) {
-    const boundary = offsets[lastBoundaryLine] + 1;
+    const boundary = (offsets[lastBoundaryLine] ?? 0) + 1;
     return { flushed: buffer.slice(0, boundary), rest: buffer.slice(boundary) };
   }
   if (inFence && fenceStart > 0) {
-    const boundary = offsets[fenceStart];
+    const boundary = offsets[fenceStart] ?? 0;
     return { flushed: buffer.slice(0, boundary), rest: buffer.slice(boundary) };
   }
   // No safe split (also: the buffer is one open fence from byte 0, or plain
@@ -142,17 +144,20 @@ function tableCells(line: string): string[] {
 /** Line-based block parser (spec §2b). Blank lines are paragraph separators. */
 function parseBlocks(text: string): Block[] {
   const lines = text.split("\n");
+  // Indexed access with noUncheckedIndexedAccess: the callers below all
+  // guard `k < lines.length` first; "" is unreachable for them.
+  const lineAt = (index: number): string => lines[index] ?? "";
   const blocks: Block[] = [];
   let k = 0;
   while (k < lines.length) {
-    const line = lines[k];
+    const line = lineAt(k);
     if (line.trim() === "") {
       k += 1;
       continue;
     }
     const heading = HEADING_RE.exec(line);
     if (heading !== null) {
-      blocks.push({ kind: "heading", text: heading[1].trim() });
+      blocks.push({ kind: "heading", text: heading[1]?.trim() ?? "" });
       k += 1;
       continue;
     }
@@ -162,12 +167,12 @@ function parseBlocks(text: string): Block[] {
       let closed = false;
       k += 1;
       while (k < lines.length) {
-        if (closesFence(lines[k], marker)) {
+        if (closesFence(lineAt(k), marker)) {
           closed = true;
           k += 1;
           break;
         }
-        body.push(lines[k]);
+        body.push(lineAt(k));
         k += 1;
       }
       blocks.push({ kind: "fence", lines: body, closed });
@@ -180,18 +185,18 @@ function parseBlocks(text: string): Block[] {
     }
     if (LIST_ITEM_RE.test(line)) {
       const block: string[] = [];
-      while (k < lines.length && lines[k].trim() !== "" && LIST_ITEM_RE.test(lines[k])) {
-        block.push(lines[k]);
+      while (k < lines.length && lineAt(k).trim() !== "" && LIST_ITEM_RE.test(lineAt(k))) {
+        block.push(lineAt(k));
         k += 1;
       }
       blocks.push({ kind: "list", lines: block });
       continue;
     }
-    if (line.includes("|") && k + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[k + 1])) {
+    if (line.includes("|") && k + 1 < lines.length && TABLE_SEPARATOR_RE.test(lineAt(k + 1))) {
       const rows = [tableCells(line)];
       k += 2;
-      while (k < lines.length && lines[k].includes("|") && lines[k].trim() !== "") {
-        rows.push(tableCells(lines[k]));
+      while (k < lines.length && lineAt(k).includes("|") && lineAt(k).trim() !== "") {
+        rows.push(tableCells(lineAt(k)));
         k += 1;
       }
       blocks.push({ kind: "table", rows });
@@ -201,13 +206,13 @@ function parseBlocks(text: string): Block[] {
     const paragraph: string[] = [];
     while (
       k < lines.length &&
-      lines[k].trim() !== "" &&
-      HEADING_RE.test(lines[k]) === false &&
-      fenceMarker(lines[k]) === null &&
-      HR_RE.test(lines[k]) === false &&
-      LIST_ITEM_RE.test(lines[k]) === false
+      lineAt(k).trim() !== "" &&
+      HEADING_RE.test(lineAt(k)) === false &&
+      fenceMarker(lineAt(k)) === null &&
+      HR_RE.test(lineAt(k)) === false &&
+      LIST_ITEM_RE.test(lineAt(k)) === false
     ) {
-      paragraph.push(lines[k]);
+      paragraph.push(lineAt(k));
       k += 1;
     }
     blocks.push({ kind: "paragraph", lines: paragraph });

@@ -14,9 +14,6 @@ interface ElementLike {
   readonly props: unknown;
 }
 
-function isElementLike(node: ReactNode): node is ElementLike {
-  return typeof node === "object" && node !== null && "props" in node;
-}
 
 /**
  * The react props bag of a rendered element. The compiler types `props` as
@@ -24,8 +21,8 @@ function isElementLike(node: ReactNode): node is ElementLike {
  * field is validated on read (textOf / the direct assertion reads).
  */
 function propsOf(node: ReactNode): Record<string, unknown> {
-  if (!isElementLike(node)) return {};
-  const props = node.props as Record<string, unknown>;
+  if (typeof node !== "object" || node === null || !("props" in node)) return {};
+  const props = (node as ElementLike).props as Record<string, unknown>;
   return typeof props === "object" && props !== null ? props : {};
 }
 

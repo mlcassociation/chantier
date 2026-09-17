@@ -119,7 +119,8 @@ describe("driveAgent compaction event", () => {
     );
 
     const notice = store.state.items.find(
-      (item) => item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
+      (item) =>
+        item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
     );
     expect(notice).toBeDefined();
     // The compaction landed in the log: entry + summary message appended.
@@ -152,7 +153,8 @@ describe("compactTaskContext", () => {
     expect(deps.messages[0]?.role).toBe("user");
     expect(
       store.state.items.some(
-        (item) => item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
+        (item) =>
+          item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
       ),
     ).toBe(true);
   });
@@ -173,7 +175,9 @@ describe("compactTaskContext", () => {
 
     expect(
       store.state.items.some(
-        (item) => item.kind === "info" && /^context compacted \(no-op\): ~\d+ tokens in view$/.test(item.text),
+        (item) =>
+          item.kind === "info" &&
+          /^context compacted \(no-op\): ~\d+ tokens in view$/.test(item.text),
       ),
     ).toBe(true);
     expect(session.lines).toHaveLength(1);
