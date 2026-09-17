@@ -1,0 +1,45 @@
+# Token-free publishing: GitHub Actions OIDC -> npm trusted publishers.
+# Prerequisite (one-time, per package, owner-side): on npmjs.com open
+# https://www.npmjs.com/package/<name>/access -> Trusted publishing -> add
+# GitHub Actions publisher: org/user mlcassociation, repo chantier, workflow
+# filename publish.yml, action "npm publish" allowed. Applies to all six
+# packages: chantier, @chantier/permissions, @chantier/core,
+# @chantier/providers, @chantier/tools, @chantier/tui.
+#
+# Publishes on tag push (v*) in dependency order: a package whose internal
+# dependencies are not yet at the new version cannot resolve, so order is
+# permissions -> core -> providers -> tools -> tui -> cli.
+name: Publish
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        working-directory: packages/permissions
+      - run: npm publish --provenance --access public
+        working-directory: packages/core
+      - run: npm publish --provenance --access public
+        working-directory: packages/providers
+      - run: npm publish --provenance --access public
+        working-directory: packages/tools
+      - run: npm publish --provenance --access public
+        working-directory: packages/tui
+      - run: npm publish --provenance --access public
+        working-directory: packages/cli
