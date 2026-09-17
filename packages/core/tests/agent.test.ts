@@ -8,19 +8,7 @@ import {
 } from "@chantier/permissions";
 import { describe, expect, it } from "vitest";
 import { type AgentEvent, runAgent } from "../src/agent.ts";
-
-function scriptedAdapter(turns: ModelEvent[][]): ModelAdapter & { calls: number } {
-  let index = 0;
-  return {
-    calls: 0,
-    async *stream() {
-      this.calls += 1;
-      const events = turns[index] ?? [];
-      index += 1;
-      for (const event of events) yield event;
-    },
-  } as ModelAdapter & { calls: number };
-}
+import { scriptedAdapter } from "./helpers/scripted.ts";
 
 interface MemorySession extends SessionStore {
   lines: unknown[];
