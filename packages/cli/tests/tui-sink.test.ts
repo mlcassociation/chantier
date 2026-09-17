@@ -38,7 +38,7 @@ describe("createTuiSink", () => {
     });
     store.decide({ approved: true });
     await pending;
-    expect(store.state.lines).toEqual(["tool: approved: edit"]);
+    expect(store.state.items).toEqual([{ kind: "info", text: "tool: approved: edit" }]);
   });
 
   it("ignores malformed or absent detail attachments", async () => {
@@ -54,7 +54,7 @@ describe("createTuiSink", () => {
     const pending = sink.ask(req);
     store.decide({ approved: false, reason: "not now" });
     await pending;
-    expect(store.state.lines).toEqual(["tool: denied (not now)"]);
+    expect(store.state.items).toEqual([{ kind: "info", text: "tool: denied (not now)" }]);
   });
 
   it("labels decisions with the always qualifier and remembers on grant", async () => {
@@ -64,7 +64,7 @@ describe("createTuiSink", () => {
     const pending = sink.ask({ tool: "bash", input: {} });
     store.decide({ approved: true, remember: true });
     await pending;
-    expect(store.state.lines).toEqual(["tool: approved (always): bash"]);
+    expect(store.state.items).toEqual([{ kind: "info", text: "tool: approved (always): bash" }]);
     expect(permission.remembered).toEqual(["bash"]);
   });
 

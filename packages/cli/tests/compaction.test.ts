@@ -118,8 +118,8 @@ describe("driveAgent compaction event", () => {
       new AbortController().signal,
     );
 
-    const notice = store.state.lines.find((line) =>
-      /^context compacted: ~\d+ -> ~\d+ tokens$/.test(line),
+    const notice = store.state.items.find(
+      (item) => item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
     );
     expect(notice).toBeDefined();
     // The compaction landed in the log: entry + summary message appended.
@@ -151,7 +151,9 @@ describe("compactTaskContext", () => {
     expect(deps.messages).toHaveLength(5);
     expect(deps.messages[0]?.role).toBe("user");
     expect(
-      store.state.lines.some((line) => /^context compacted: ~\d+ -> ~\d+ tokens$/.test(line)),
+      store.state.items.some(
+        (item) => item.kind === "divider" && /^context compacted: ~\d+ -> ~\d+ tokens$/.test(item.text),
+      ),
     ).toBe(true);
   });
 
@@ -170,8 +172,8 @@ describe("compactTaskContext", () => {
     await compactTaskContext(store, deps, { manual: true });
 
     expect(
-      store.state.lines.some((line) =>
-        /^context compacted \(no-op\): ~\d+ tokens in view$/.test(line),
+      store.state.items.some(
+        (item) => item.kind === "info" && /^context compacted \(no-op\): ~\d+ tokens in view$/.test(item.text),
       ),
     ).toBe(true);
     expect(session.lines).toHaveLength(1);
@@ -183,10 +185,12 @@ describe("compactTaskContext", () => {
     const deps = makeDeps(session, [userMessage("hi")], scriptedAdapter([]));
 
     await compactTaskContext(store, deps, {});
-    expect(store.state.lines).toEqual([]);
+    expect(store.state.items).toEqual([]);
 
     await compactTaskContext(store, deps, { manual: true });
-    expect(store.state.lines).toEqual(["compaction unavailable: no context window for this model"]);
+    expect(store.state.items).toEqual([
+      { kind: "info", text: "compaction unavailable: no context window for this model" },
+    ]);
     expect(session.lines).toHaveLength(0);
   });
 });
