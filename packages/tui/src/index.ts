@@ -12,6 +12,7 @@ export {
   type DiffPreview,
   summarizeUnifiedDiff,
 } from "./diff.ts";
+export type { RunningState, TuiItem, UsageTotals } from "./items.ts";
 export {
   hasMarkdownSyntax,
   markdownDivider,
