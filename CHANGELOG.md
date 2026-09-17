@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.0 — 2026-09-17
+
+### Subagents
+
+- The `task` tool delegates one self-contained subtask to a child agent run
+  re-entering the same loop: same adapter, same permission rules, fresh
+  session.
+- Deny-first inheritance: the child's permission engine is built from the
+  parent's rules verbatim; remembered grants never cross the boundary (a
+  child starts with an empty remember set); denied child mutations surface in
+  the parent's approval UI, never as auto-propagated approvals.
+- Depth cap by construction: the child toolset is the builtin set and does
+  not contain `task`, so children cannot spawn children.
+- The child's final summary returns capped at 50 KiB; the full transcript
+  lives in its own JSONL session file, referenced by session id.
+- Ctrl-C aborts both parent and child promptly.
+
+### System prompt composer
+
+- The system prompt is now assembled from fixed sections in a fixed order:
+  environment (cwd, date, git branch read from the filesystem), identity,
+  doing-tasks discipline, permission-denial rule, tool catalog, tool usage
+  rules, project AGENTS.md last.
+- Model profiles: `glm-` and `claude-` model ids resolve family-specific
+  identity guidance; other models get the default profile, byte-identical to
+  the previous prompt.
+- The CLI banner and `--version` derive from the package manifest, so the
+  printed version can no longer drift from the published one.
+
+### Eval ladder
+
+- Rung 1: seeded property tests over the permission engine (deny-first
+  precedence, allow-never-beats-deny, first-match stability, silence never
+  approves) — always on in CI.
+- Rung 2: behavioral scenarios over scripted tool-call sequences (denial
+  handling, approval flow, read-only batching, max-turns, reactive
+  compaction) — always on in CI, no live model calls.
+- Rung 3: opt-in live-model recipes documented in `docs/evals.md`; never
+  wired into CI.
+
+### Release engineering
+
+- Trusted publishing: `publish.yml` publishes all six packages on a `v*` tag
+  push via GitHub Actions OIDC — no npm tokens, with provenance, gated on
+  typecheck, lint, tests, and build in dependency order.
+
 ## 0.3.0 — 2026-09-16
 
 First npmjs.com release. All packages publish at 0.3.0: `chantier` (CLI) and
