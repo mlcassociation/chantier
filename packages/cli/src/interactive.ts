@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type AgentEvent,
   buildSystemPrompt,
@@ -445,11 +446,14 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
   if (deps.projectSkillRoots !== undefined && deps.projectSkillRoots.length > 0) {
     const discovered = await loadSkills(deps.projectSkillRoots, { onNotice: deps.notice });
     if (discovered.length > 0) {
-      const verdict = deps.permission.evaluate("project-skills");
+      // Remembered grants key on the tool name GLOBALLY, so the name carries
+      // a cwd hash — "always" for one project must not auto-approve another.
+      const projectSkillsTool = `project-skills-${createHash("sha256").update(deps.cwd).digest("hex").slice(0, 12)}`;
+      const verdict = deps.permission.evaluate(projectSkillsTool);
       let approved = verdict === "allow";
       if (verdict === "ask") {
         const decision = await sink.ask({
-          tool: "project-skills",
+          tool: projectSkillsTool,
           input: { names: discovered.map((skill) => skill.name) },
           reason: `this project ships ${discovered.length} skills — load them?`,
         });

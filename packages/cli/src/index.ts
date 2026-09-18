@@ -19,7 +19,7 @@ import {
   sessionView,
   type TodoStep,
 } from "@chantier/core";
-import { connectServers, loadMcpConfig } from "@chantier/mcp";
+import { connectServers, loadMcpConfig, type McpServerConfig } from "@chantier/mcp";
 import {
   createAllowAllSink,
   createDenyAllSink,
@@ -38,6 +38,7 @@ import {
 import { disableColors } from "./color.ts";
 import { loadConfig, loadSettings } from "./config.ts";
 import { runInteractive, writeHeadlessCompactionNotice } from "./interactive.ts";
+import { isProjectMcpTrusted, promptProjectMcpTrust } from "./mcp-trust.ts";
 
 // Derived from the package manifest so the banner and --version can never
 // drift from the published version; dist/index.mjs and src resolve the same
@@ -157,11 +158,33 @@ async function main(): Promise<number> {
 
   // MCP servers: connect before the first request; one dead server is a
   // stderr notice, never a failed launch. Children stay builtins-only.
+  // PROJECT servers spawn arbitrary commands from .mcp.json — the same
+  // launch-RCE class as project skills — so they carry a trust gate:
+  // interactive sessions confirm once per project (y / a=always / n);
+  // headless -p loads them only with --trust-mcp. User-level servers from
+  // ~/.chantier/config.json are deliberate and never gated.
   const mcpConfig = await loadMcpConfig({ cwd });
-  const mcp = await connectServers(mcpConfig.servers, { cwd });
-  for (const notice of [...mcpConfig.notices, ...mcp.notices]) {
-    process.stderr.write(`mcp: ${notice}\n`);
+  const projectServerNames = Object.keys(mcpConfig.projectServers);
+  let gatedServers: Readonly<Record<string, McpServerConfig>> = mcpConfig.servers;
+  if (projectServerNames.length > 0 && !isProjectMcpTrusted(cwd)) {
+    if (interactive && process.stdin.isTTY === true) {
+      const verdict = await promptProjectMcpTrust(
+        cwd,
+        projectServerNames,
+        mcpConfig.projectServers,
+      );
+      if (verdict === "deny") {
+        gatedServers = mcpConfig.globalServers;
+        process.stderr.write("mcp: project servers skipped (not trusted)\n");
+      }
+    } else if (values["trust-mcp"] !== true) {
+      gatedServers = mcpConfig.globalServers;
+      process.stderr.write(
+        "mcp: project servers skipped in headless mode (pass --trust-mcp to load them)\n",
+      );
+    }
   }
+  const mcp = await connectServers(gatedServers, { cwd });
   const mcpTools = mcp.connections.flatMap((conn) => conn.tools);
 
   const tools = [

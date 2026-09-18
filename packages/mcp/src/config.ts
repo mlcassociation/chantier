@@ -28,6 +28,10 @@ export interface McpConfigOptions {
 
 export interface McpConfigResult {
   readonly servers: Readonly<Record<string, McpServerConfig>>;
+  /** Servers from the project .mcp.json — trust-gated before connecting. */
+  readonly projectServers: Readonly<Record<string, McpServerConfig>>;
+  /** Servers from the user's ~/.chantier/config.json — never gated. */
+  readonly globalServers: Readonly<Record<string, McpServerConfig>>;
   readonly notices: readonly string[];
 }
 
@@ -48,7 +52,7 @@ export async function loadMcpConfig(opts: McpConfigOptions = {}): Promise<McpCon
       notices.push(`server '${name}' defined in global and project config; project wins`);
     }
   }
-  return { servers, notices };
+  return { servers, projectServers, globalServers, notices };
 }
 
 async function readGlobalServers(notices: string[]): Promise<Record<string, McpServerConfig>> {

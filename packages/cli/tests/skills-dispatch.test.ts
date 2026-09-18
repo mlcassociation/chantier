@@ -421,7 +421,9 @@ describe("runInteractive project-skill trust gate", () => {
     const run = runInteractive(deps);
     const store = currentStore();
     await waitFor(() => store.recorded.asks.length > 0);
-    expect(store.recorded.asks[0]?.tool).toBe("project-skills");
+    // Remembered grants key on the tool name globally: the per-project hash
+    // suffix binds an "always" verdict to this cwd only.
+    expect(store.recorded.asks[0]?.tool).toMatch(/^project-skills-[0-9a-f]{12}$/);
     expect(store.recorded.asks[0]?.input).toEqual({ names: ["demo"] });
     store.resolveTask("/demo now");
     await waitFor(() => userTexts(session.lines).length === 1);
