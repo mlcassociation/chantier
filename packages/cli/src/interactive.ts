@@ -33,6 +33,7 @@ import {
   type TuiPromptDetail,
   type TuiStore,
 } from "@chantier/tui";
+import { glob } from "tinyglobby";
 
 export interface InteractiveDeps {
   adapter: ModelAdapter;
@@ -353,10 +354,45 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     },
   });
   // Terminal bell when an approval card demands attention (SR mode only);
+  // --- v0.6: command registry + skills ----------------------------------------
+
+  // Palette files for the @ picker: a bounded, shallow cwd file listing
+  // computed once per session (gitignore-aware defaults; hidden dirs skipped).
+  const paletteFiles = (
+    await glob("**/*", {
+      cwd: deps.cwd,
+      ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.chantier/sessions/**"],
+      onlyFiles: true,
+      followSymbolicLinks: false,
+    })
+  ).slice(0, 500);
+  // Built-ins register first (stable /help order). /compact keeps its exact
+  // semantics: the registry dispatches only the bare form — `/compact extra`
+  // is not-command and reaches the agent verbatim (the with-args rule).
+  const registry = createCommandRegistry();
+  registry.register({
+    name: "compact",
+    description: "compact the conversation to free context window",
+    kind: "action",
+    run: (io) => compactTaskContext(store, deps, { manual: true, signal: io.signal }),
+  });
+  registry.register({
+    name: "help",
+    description: "list slash commands and skills",
+    kind: "action",
+    run: (io) => {
+      io.pushItem({ kind: "info", text: helpText(registry) });
+    },
+  });
+  // Terminal bell when an approval card demands attention (SR mode only);
   // the sink forwards any diff attachment on the request into the TUI.
   const sink = createTuiSink(store, { permission: deps.permission, bell });
   const tui = startTui(store, {
     screenReader,
+    // The palette reads the registry lazily: skills registered after this
+    // point (trust gate) appear on the next render.
+    commands: () => registry.list().map((spec) => ({ ...spec })),
+    files: () => paletteFiles,
     footer: {
       model: deps.model ?? "chantier",
       // Session ids are timestamp-prefixed; the unique tail is the label.
@@ -381,25 +417,6 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     },
   });
 
-  // --- v0.6: command registry + skills ----------------------------------------
-  // Built-ins register first (stable /help order). /compact keeps its exact
-  // semantics: the registry dispatches only the bare form — `/compact extra`
-  // is not-command and reaches the agent verbatim (the with-args rule).
-  const registry = createCommandRegistry();
-  registry.register({
-    name: "compact",
-    description: "compact the conversation to free context window",
-    kind: "action",
-    run: (io) => compactTaskContext(store, deps, { manual: true, signal: io.signal }),
-  });
-  registry.register({
-    name: "help",
-    description: "list slash commands and skills",
-    kind: "action",
-    run: (io) => {
-      io.pushItem({ kind: "info", text: helpText(registry) });
-    },
-  });
   // User-dir skills register unconditionally; project skills ride the trust
   // gate below (first session in a project that ships skills approves once;
   // headless -p loads them only with --trust-skills, decided in index.ts).

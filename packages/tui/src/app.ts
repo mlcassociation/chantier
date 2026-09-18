@@ -30,6 +30,7 @@ import type { TuiItem } from "./items.ts";
 import { keypressToDecision } from "./keys.ts";
 import { renderMark, tuiVersion } from "./mark.ts";
 import { markdownToElements } from "./markdown.ts";
+import type { PaletteCommand } from "./palette.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
 import type { TuiStore } from "./store.ts";
 import { isAsciiEnv, resolveSymbols, type TuiSymbols } from "./symbols.ts";
@@ -54,9 +55,16 @@ export function TuiApp({
   store,
   footer,
   tips,
+  commands,
+  files,
 }: {
   store: TuiStore;
   tips?: boolean;
+  /** Slash commands for the palette; a lazy getter so late skill
+   * registrations appear on the next render. */
+  commands?: () => readonly PaletteCommand[];
+  /** Relative cwd file paths for the @ picker. */
+  files?: () => readonly string[];
   footer?: {
     readonly model: string;
     readonly sessionId: string;
@@ -201,6 +209,8 @@ export function TuiApp({
     children.push(
       createElement(TaskInput, {
         editor,
+        ...(commands === undefined ? {} : { commands: commands() }),
+        ...(files === undefined ? {} : { files: files() }),
         onEditorChange: (next) => setEditor(next),
         onSubmit: (text) => {
           setEditor(emptyEditor());
@@ -312,6 +322,10 @@ export interface TuiOptions {
   readonly screenReader?: boolean;
   /** Rotating startup tip under the Mark; default on. */
   readonly tips?: boolean;
+  /** Slash commands for the palette (lazy: skills may register later). */
+  readonly commands?: () => readonly PaletteCommand[];
+  /** Relative cwd file paths for the @ picker. */
+  readonly files?: () => readonly string[];
   /** Footer segments; session id + model come from the CLI, contextWindow gates the ctx segment. */
   readonly footer?: {
     readonly model: string;
@@ -334,6 +348,8 @@ export function startTui(store: TuiStore, options: TuiOptions = {}): TuiInstance
       store,
       ...(options.footer === undefined ? {} : { footer: options.footer }),
       ...(options.tips === undefined ? {} : { tips: options.tips }),
+      ...(options.commands === undefined ? {} : { commands: options.commands }),
+      ...(options.files === undefined ? {} : { files: options.files }),
     }),
     {
       exitOnCtrlC: false,
