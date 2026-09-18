@@ -21,7 +21,11 @@ export type TuiItem =
     }
   | { kind: "divider"; text: string }
   | { kind: "info"; text: string }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  /** BUG-6 (v0.6): the submitted task, echoed before the run starts. */
+  | { kind: "prompt"; text: string }
+  /** Final todo checklist flushed when the run settles (v0.6). */
+  | { kind: "todo"; text: string };
 
 /** Status-widget state; null hides the widget. */
 export interface RunningState {
@@ -51,6 +55,20 @@ export interface TuiStoreV5 {
   readonly statusFlash: string;
   /** 4–6s transient status flash that falls back to the persistent status (Hermes restoreStatusAfter). */
   flashStatus(text: string): void;
+}
+
+/** Todo checklist row (canonical shape mirrors @chantier/core todo.ts). */
+export type TodoStep = {
+  readonly content: string;
+  readonly status: "pending" | "in_progress" | "completed";
+};
+
+/** Additions to TuiStore for v0.6 (TUI worker implements; TuiState gains the fields). */
+export interface TuiStoreV6 {
+  /** Live todo checklist from the agent's todo tool; empty = none. */
+  readonly todos: readonly TodoStep[];
+  /** Whole-list replace per todo-tool call. */
+  setTodos(steps: readonly TodoStep[]): void;
 }
 
 /** Re-export for convenience; TuiPromptDetail is unchanged from v0.4. */

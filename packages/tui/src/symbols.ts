@@ -35,6 +35,18 @@ export interface TuiSymbols {
   readonly arrowUp: string;
   /** Minus sign in diff counts: "−" normally, "-" in ASCII mode (§7). */
   readonly minus: string;
+  /** Submitted-prompt glyph: "❯" normally, ">" in ASCII mode (BUG-6). */
+  readonly promptGlyph: string;
+  /** Todo states (v0.6): completed / pending / active-in-progress. */
+  readonly todoDone: string;
+  readonly todoPending: string;
+  readonly todoActive: string;
+  /**
+   * Brand block art, three width tiers (full/short/tiny) for the startup
+   * Mark. null in ASCII/screen-reader mode — the Mark falls back to the
+   * plain one-line wordmark tier there.
+   */
+  readonly markArt: readonly string[] | null;
 }
 
 export const UNICODE_SYMBOLS: TuiSymbols = {
@@ -51,6 +63,16 @@ export const UNICODE_SYMBOLS: TuiSymbols = {
   arrow: "→",
   arrowUp: "↑",
   minus: "−",
+  promptGlyph: "❯",
+  todoDone: "✓",
+  todoPending: "▢",
+  todoActive: "●",
+  markArt: [
+    "█▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀█",
+    "█  ▐█▛  chantier                       █",
+    "█  the coding harness                   █",
+    "█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█",
+  ],
 };
 
 export const ASCII_SYMBOLS: TuiSymbols = {
@@ -67,6 +89,11 @@ export const ASCII_SYMBOLS: TuiSymbols = {
   arrow: "->",
   arrowUp: "^",
   minus: "-",
+  promptGlyph: ">",
+  todoDone: "+",
+  todoPending: "-",
+  todoActive: "*",
+  markArt: null,
 };
 
 export function resolveSymbols(ascii: boolean): TuiSymbols {
