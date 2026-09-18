@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition } from "./types.ts";
+import type { Skill } from "./skills.ts";
 
 /**
  * Tool-usage rules the model needs to drive the harness correctly.
@@ -28,6 +29,13 @@ const DOING_TASKS = `# Doing tasks
 - Comments explain WHY, not WHAT; skip them where the code already says it.
 - Verify behavioral changes by running the changed path, not by re-reading the edit.
 - State uncertainty plainly rather than guessing.`;
+
+/** Present in the prompt only when a tool named "todo" is offered. */
+const TODO_USAGE = `# Todo checklist
+
+For any task with more than a couple of steps, lay out the plan with the todo tool FIRST
+(one step in_progress, the rest pending), then keep the checklist current as you work:
+each update replaces the whole list, so re-send every row with its new status.`;
 
 const DENIALS = `# Permission denials
 
@@ -91,9 +99,10 @@ export function resolveModelProfile(model: string): ModelProfile {
 
 /**
  * Builds the system prompt from fixed, blank-line-joined sections: environment,
- * identity (profile-adjustable), doing-tasks rules, denial rule, delegation
- * (only when a `task` tool is offered), tool catalog, tool rules, and every
- * AGENTS.md from cwd up to the git root last.
+ * identity (profile-adjustable), doing-tasks rules, todo usage (when the tool
+ * is offered), the tier-1 skill catalog (when skills are passed), denial rule,
+ * delegation (only when a `task` tool is offered), tool catalog, tool rules,
+ * and every AGENTS.md from cwd up to the git root last.
  *
  * `profile` omitted means the default profile: identity and tool rules keep
  * today's semantics, new sections are purely additive.
@@ -102,6 +111,7 @@ export async function buildSystemPrompt(
   cwd: string,
   tools: ToolDefinition[],
   profile: ModelProfile = DEFAULT_PROFILE,
+  skills: readonly Skill[] = [],
 ): Promise<string> {
   const toolCatalog = tools
     .map(
@@ -114,8 +124,10 @@ export async function buildSystemPrompt(
     await environmentSection(cwd),
     profile.identity ?? IDENTITY,
     DOING_TASKS,
-    DENIALS,
   ];
+  if (tools.some((tool) => tool.name === "todo")) sections.push(TODO_USAGE);
+  if (skills.length > 0) sections.push(skillsSection(skills));
+  sections.push(DENIALS);
   if (tools.some((tool) => tool.name === "task")) sections.push(DELEGATION);
   sections.push(`# Available tools\n\n${toolCatalog}`, TOOL_RULES);
 
@@ -124,6 +136,35 @@ export async function buildSystemPrompt(
     sections.push(`# Project instructions (AGENTS.md)\n\n${agentsDocs.join("\n\n")}`);
   }
   return sections.join("\n\n");
+}
+
+/** Tier-1 skill catalog: `name — description` rows, 200-char descriptions, ~2000-char cap. */
+const SKILL_DESCRIPTION_SHOWN = 200;
+const SKILL_CATALOG_CAP = 2000;
+
+const SKILLS_INTRO =
+  "# Skills\n\nSlash commands available (/name [args]) — invoking one injects the skill's " +
+  "full body into the task:";
+
+function skillsSection(skills: readonly Skill[]): string {
+  const kept: string[] = [];
+  let dropped = 0;
+  const render = (): string => {
+    const parts = [...kept];
+    if (dropped > 0) parts.push(`(+${dropped} more)`);
+    return [SKILLS_INTRO, ...parts].join("\n");
+  };
+  for (const skill of skills) {
+    const description = skill.description;
+    kept.push(
+      `- ${skill.name} — ${description.length > SKILL_DESCRIPTION_SHOWN ? `${description.slice(0, SKILL_DESCRIPTION_SHOWN)}...` : description}`,
+    );
+    while (kept.length > 1 && render().length > SKILL_CATALOG_CAP) {
+      kept.shift();
+      dropped += 1;
+    }
+  }
+  return render();
 }
 
 /** Environment facts first; the branch line is omitted rather than fabricated. */

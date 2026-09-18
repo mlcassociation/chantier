@@ -1,4 +1,5 @@
 import type { ApprovalDetail, PermissionEngine } from "@chantier/permissions";
+import type { TodoStep } from "./todo.ts";
 
 // --- Messages -----------------------------------------------------------------
 
@@ -88,6 +89,12 @@ export interface ToolContext {
   session: SessionStore;
   permission: PermissionEngine;
   signal: AbortSignal;
+  /**
+   * v0.6: live todo-trail hook. The todo tool forwards each accepted
+   * checklist to it; the interactive loop binds it to the TUI store.
+   * Undefined = the checklist is accepted without a live consumer.
+   */
+  onTodo?: (steps: readonly TodoStep[]) => void;
 }
 
 export interface ToolDefinition {

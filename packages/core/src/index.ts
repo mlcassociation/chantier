@@ -15,7 +15,32 @@ export {
   serializeConversation,
   shouldCompact,
 } from "./compaction.ts";
+export {
+  type ActionSpec,
+  type CommandIo,
+  type CommandRegistryV6,
+  type DispatchResult,
+  type ExpandSpec,
+  createCommandRegistry,
+  type RegistrableCommand,
+} from "./commands.ts";
 export { buildSystemPrompt, type ModelProfile, resolveModelProfile } from "./context.ts";
+export {
+  type LoadSkillsOptions,
+  type LoadSkillBody,
+  type LoadSkills,
+  type Skill,
+  type SkillFrontmatter,
+  loadSkillBody,
+  loadSkills,
+} from "./skills.ts";
+export {
+  type CreateTodoTool,
+  type TodoStep,
+  createTodoTool,
+  normalizeTodoSteps,
+  summarizeTodoSteps,
+} from "./todo.ts";
 export type { ModelAdapter } from "./model-adapter.ts";
 export {
   alignedMessageOrdinals,
