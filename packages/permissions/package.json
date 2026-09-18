@@ -1,6 +1,6 @@
 {
   "name": "@chantier/permissions",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Deny-first permission engine for the chantier coding agent",

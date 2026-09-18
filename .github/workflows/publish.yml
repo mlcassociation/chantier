@@ -3,7 +3,7 @@
 # https://www.npmjs.com/package/<name>/access -> Trusted publishing -> add
 # GitHub Actions publisher: org/user mlcassociation, repo chantier, workflow
 # filename publish.yml, action "npm publish" allowed. Applies to all six
-# packages: chantier, @chantier/permissions, @chantier/core,
+# packages: chantier, @chantier/permissions, @chantier/core, @chantier/mcp,
 # @chantier/providers, @chantier/tools, @chantier/tui.
 #
 # Publishes on tag push (v*) in dependency order: a package whose internal
@@ -35,6 +35,8 @@ jobs:
         working-directory: packages/permissions
       - run: npm publish --provenance --access public
         working-directory: packages/core
+      - run: npm publish --provenance --access public
+        working-directory: packages/mcp
       - run: npm publish --provenance --access public
         working-directory: packages/providers
       - run: npm publish --provenance --access public

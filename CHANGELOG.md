@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0 — 2026-09-18
+
+### Extension layer
+
+- Skills (agentskills.io): drop a `SKILL.md` in `~/.chantier/skills/`, `.agents/skills/`,
+  or `.claude/skills/` and it appears as `/name` with progressive disclosure — the
+  system prompt carries name + description only; the body loads when invoked. Project
+  skills require a one-time trust approval (headless: `--trust-skills`). YAML block
+  scalars (`description: >`) parse correctly.
+- MCP client (`@chantier/mcp`): servers configured in `.mcp.json` (Claude Code shape)
+  or `~/.chantier/config.json` join the toolkit as `mcp__<server>__<tool>` behind the
+  same deny-first approval ladder; stdio and streamable-HTTP transports; dead servers
+  mark failed results and a notice without ending the session.
+- Slash-command registry replaces the `/compact` special case; `/help` lists it.
+
+### Design pass
+
+- Startup Mark: a brand block with version, model/session line, hint row, and a
+  rotating tip — printed once into the append-only transcript, flat in screen-reader
+  and ASCII modes, legible under NO_COLOR.
+- Activity ribbon: the working indicator shows the real current action, elapsed time,
+  the last two finished tool steps as chips, and the queue count (updates at 4Hz).
+- Todo trail: the agent keeps a visible checklist while it works (exactly one item
+  in progress), which flushes into the transcript when the run settles.
+- Submitted prompts now echo into the transcript as a labeled `you:` line (previously
+  the typed message vanished after Enter).
+
+### Fixes
+
+- Session ids carry a monotonic sequence so two sessions created in the same
+  millisecond resolve "resume newest" deterministically (CI-flaky before).
+- Tool rows humanize argument summaries (paths and short strings instead of raw JSON).
+
 ## 0.5.0 — 2026-09-18
 
 ### Reading surface
