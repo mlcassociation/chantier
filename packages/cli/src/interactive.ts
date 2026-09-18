@@ -324,18 +324,20 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     screenReader,
     footer: {
       model: deps.model ?? "chantier",
-      sessionId: deps.session.id,
+      // Session ids are timestamp-prefixed; the unique tail is the label.
+      sessionId: deps.session.id.slice(-8),
       ...(deps.contextWindow === undefined ? {} : { contextWindow: deps.contextWindow }),
       data: () => {
         // Same estimate compactTaskContext uses; per render so the gauge
         // tracks the running conversation (spec §5).
-        if (deps.contextWindow === undefined) return {};
+        const contextWindow = deps.contextWindow;
+        if (contextWindow === undefined) return {};
         const tokens = viewTokens(deps);
         return {
-          ctxFraction: Math.min(1, tokens / deps.contextWindow),
+          ctxFraction: Math.min(1, tokens / contextWindow),
           compactSoon: shouldCompact({
             tokensUsed: tokens,
-            window: deps.contextWindow,
+            window: contextWindow,
             reserve: DEFAULT_COMPACTION_RESERVE,
             keepRecent: DEFAULT_COMPACTION_KEEP_RECENT,
           }),
