@@ -1,0 +1,45 @@
+{
+  "name": "@chantier/mcp",
+  "version": "0.5.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "MCP client: server connections, tool adapters, and config loading for the chantier coding agent",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mlcassociation/chantier.git"
+  },
+  "homepage": "https://github.com/mlcassociation/chantier#readme",
+  "bugs": {
+    "url": "https://github.com/mlcassociation/chantier/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean --out-dir dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "tsdown": "0.23.0"
+  }
+}
