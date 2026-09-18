@@ -90,3 +90,32 @@ describe("session store", () => {
     expect(path.basename(dir)).toMatch(/^[0-9a-f]{12}$/);
   });
 });
+
+it("orders same-millisecond creations deterministically (real-timer regression: CI filesystem timestamps tie at 1ms)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "chantier-tie-"));
+  const cwd = "/tmp/tie-probe";
+  for (let i = 0; i < 40; i++) {
+    // Land each pair on a fresh ms boundary, then create both stores back to
+    // back so the pair frequently completes inside one millisecond — where
+    // mtime ties force loadNewestSessionId onto its name tie-break.
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        clearInterval(timer);
+        resolve();
+      }, 1);
+    });
+    const _first = await createSessionStore({
+      cwd,
+      provider: "ollama",
+      model: "m",
+      sessionsRoot: root,
+    });
+    const second = await createSessionStore({
+      cwd,
+      provider: "ollama",
+      model: "m",
+      sessionsRoot: root,
+    });
+    expect(await loadNewestSessionId(cwd, root)).toBe(second.id);
+  }
+});

@@ -41,8 +41,14 @@ export interface ResumeSessionOptions {
   id: string;
 }
 
+// The 4-char base36 sequence makes same-millisecond creations from this process
+// sort lexically by creation order, so "newest" tie-breaks in loadNewestSessionId
+// stay correct even on filesystems with millisecond timestamp granularity.
+let sequence = 0;
 function newSessionId(): string {
-  return `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}`;
+  sequence = (sequence + 1) % 1_679_616;
+  const seq = sequence.toString(36).padStart(4, "0");
+  return `${new Date().toISOString().replace(/[:.]/g, "-")}-${seq}${randomBytes(2).toString("hex")}`;
 }
 
 function buildStore(file: string, dir: string, id: string, selfId: string): SessionStore {
