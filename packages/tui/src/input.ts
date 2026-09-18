@@ -354,10 +354,10 @@ export function TaskInput({
   useEffect(() => {
     if (trigger === null) setPaletteDismissed(false);
   });
-  const _queryKey = `${trigger?.kind ?? ""}:${query}`;
+  const queryKey = `${trigger?.kind ?? ""}:${query}`;
   useEffect(() => {
     setPaletteIndex(0);
-  }, []);
+  }, [queryKey]);
 
   const insertPaletteRow = (row: PaletteRow | undefined): void => {
     if (row === undefined || trigger === null) return;
