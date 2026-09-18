@@ -112,8 +112,9 @@ export function ToolRow({ item, symbols, screenReader = false }: ToolRowProps): 
   if (screenReader) return createElement(Text, { key: "sr" }, toolRowSrText(item));
   // A task result carrying a child session renders as the subagent card
   // instead of the plain ladder row (§4b).
-  if (item.subagent !== undefined) {
-    return createElement(SubagentCard, { item, symbols });
+  const child = item.subagent;
+  if (child !== undefined) {
+    return createElement(SubagentCard, { item: { ...item, subagent: child }, symbols });
   }
   return renderRows(toolRowLines(item, symbols));
 }

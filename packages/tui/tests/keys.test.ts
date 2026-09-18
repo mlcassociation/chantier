@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ACTION_CHORDS,
-  type Keychord,
-  keypressToDecision,
-  matches,
-} from "../src/keys.ts";
+import { ACTION_CHORDS, keypressToDecision, matches } from "../src/keys.ts";
 
 const ALL_IDS = Object.keys(ACTION_CHORDS) as Array<keyof typeof ACTION_CHORDS>;
 

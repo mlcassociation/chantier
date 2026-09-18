@@ -14,7 +14,6 @@ interface ElementLike {
   readonly props: unknown;
 }
 
-
 /**
  * The react props bag of a rendered element. The compiler types `props` as
  * unknown once the `in` guard narrows; the cast is to a plain record and every
@@ -209,7 +208,7 @@ describe("markdownToElements", () => {
 
   it("markdownDivider wraps text in rules visually and stays plain for screen readers", () => {
     const visual = markdownDivider("context compacted", SYMBOLS, false);
-    expect(textOf(visual)).toBe(`\u2500`.repeat(40) + " context compacted " + `\u2500`.repeat(40));
+    expect(textOf(visual)).toBe(`${`\u2500`.repeat(40)} context compacted ${`\u2500`.repeat(40)}`);
     expect(propsOf(visual).dimColor).toBe(true);
     const sr = markdownDivider("context compacted", SYMBOLS, true);
     expect(textOf(sr)).toBe("context compacted");

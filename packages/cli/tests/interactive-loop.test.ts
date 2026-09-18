@@ -10,7 +10,7 @@ import type {
   UsageTotals,
 } from "@chantier/tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type InteractiveDeps, runInteractive } from "../src/interactive.ts";
+import { type InteractiveDeps, runInteractive, subagentInfo } from "../src/interactive.ts";
 
 /**
  * The runInteractive seam, driven end to end with a scripted ModelAdapter and
@@ -23,7 +23,6 @@ import { type InteractiveDeps, runInteractive } from "../src/interactive.ts";
  */
 
 interface FakeStore extends TuiStore, TuiStoreV5 {
-  readonly lines: Array<string>;
   readonly items: Array<TuiItem>;
   readonly recorded: {
     runningCalls: Array<RunningState | null>;
@@ -38,7 +37,6 @@ const fakeTui = vi.hoisted(() => {
   const buildFakeStore = (handlers: {
     onAbort: (kind: "escape" | "ctrl-c") => void;
   }): FakeStore => {
-    const lines: Array<string> = [];
     const items: Array<TuiItem> = [];
     const queued: Array<string> = [];
     const runningCalls: Array<RunningState | null> = [];
@@ -49,9 +47,13 @@ const fakeTui = vi.hoisted(() => {
     let pending: ((task: string | null) => void) | null = null;
     const state: TuiState = {
       mode: "input",
-      lines: [],
+      items,
       streamText: "",
       status: "",
+      running: null,
+      queued: [],
+      usage: undefined,
+      statusFlash: "",
       prompt: null,
       promptDetail: null,
       inputText: "",
@@ -60,9 +62,6 @@ const fakeTui = vi.hoisted(() => {
     const store: FakeStore = {
       state,
       subscribe: () => () => {},
-      pushLine: (line) => {
-        lines.push(line);
-      },
       appendStream: () => {},
       flushStream: () => {},
       setStatus: () => {},
@@ -122,7 +121,6 @@ const fakeTui = vi.hoisted(() => {
       flashStatus: (text) => {
         flashes.push(text);
       },
-      lines,
       recorded: { runningCalls, flashes },
       resolveTask: (task) => {
         if (pending !== null) {
@@ -354,8 +352,10 @@ describe("runInteractive loop (§6d)", () => {
     const run = runInteractive(makeDeps(session, adapter));
     const store = currentStore();
     store.resolveTask("/compact");
-    await waitFor(() => store.lines.length > 0);
-    expect(store.lines).toEqual(["compaction unavailable: no context window for this model"]);
+    await waitFor(() => store.items.length > 0);
+    expect(store.items.map((item) => (item.kind === "info" ? item.text : ""))).toEqual([
+      "compaction unavailable: no context window for this model",
+    ]);
     store.resolveTask(null);
     expect(await run).toBe(0);
     expect(store.recorded.runningCalls).toEqual([]);
@@ -370,5 +370,20 @@ describe("runInteractive loop (§6d)", () => {
     expect(await run).toBe(0);
     expect(store.recorded.runningCalls).toEqual([]);
     expect(session.lines).toEqual([]);
+  });
+});
+
+describe("subagentInfo (§4b lane payload)", () => {
+  it("splits the task footer into summary + session id", () => {
+    const info = subagentInfo(
+      "read the auth module and summarized it.\n\n(subagent session: 9f2c1a8b)",
+    );
+    expect(info).toEqual({
+      sessionId: "9f2c1a8b",
+      summary: "read the auth module and summarized it.",
+    });
+  });
+  it("returns undefined without a session footer", () => {
+    expect(subagentInfo("plain tool output")).toBeUndefined();
   });
 });

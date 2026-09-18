@@ -54,7 +54,7 @@ describe("approval card diff attachment", () => {
     const view = await renderStore(store);
     const frame = view.frame();
     expect(frame).toContain("approve edit?");
-    expect(frame).toContain("proposed change");
+    expect(frame).toContain("src/hello.ts  +2 −1");
     expect(frame).toContain('-  console.log("hi")');
     expect(frame).toContain('+  console.log("hello")');
     expect(frame).not.toContain("more lines");
@@ -69,7 +69,7 @@ describe("approval card diff attachment", () => {
     const frame = view.frame();
     expect(frame).toContain("+line 10");
     expect(frame).not.toContain("+line 11");
-    expect(frame).toContain("+4 more lines");
+    expect(frame).toContain("4 more lines");
     view.unmount();
   });
 

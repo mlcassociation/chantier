@@ -2,12 +2,15 @@ import {
   type AgentEvent,
   type CompactionOutcome,
   compactSession,
+  DEFAULT_COMPACTION_KEEP_RECENT,
+  DEFAULT_COMPACTION_RESERVE,
   estimateMessageTokens,
   type Message,
   type ModelAdapter,
   runAgent,
   type SessionStore,
   sessionView,
+  shouldCompact,
   type ToolDefinition,
 } from "@chantier/core";
 import type { ApprovalRequest, ApprovalSink, RememberingEngine } from "@chantier/permissions";
@@ -40,6 +43,8 @@ export interface InteractiveDeps {
   contextWindow?: number;
   /** Opt-in screen-reader rendering (--screen-reader); CHANTIER_SCREEN_READER=1 also enables it. */
   screenReader?: boolean;
+  /** Model id for the footer badge (§5); undefined renders the neutral label. */
+  model?: string;
 }
 
 function summarizeResult(
@@ -67,6 +72,21 @@ function toolDetail(content: string, ellipsis: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Parses the task tool's result footer (spawnSubagent appends
+ * `(subagent session: <id>)`) into the §4b lane payload: summary = content
+ * above the footer, sessionId = the footer id. No footer → null (the card
+ * never renders without a session reference).
+ */
+export function subagentInfo(content: string): { sessionId: string; summary: string } | undefined {
+  const match = /\(subagent session: ([0-9a-f-]+)\)\s*$/.exec(content.trimEnd());
+  if (match === null) return undefined;
+  const sessionId = match[1];
+  if (sessionId === undefined || sessionId.length === 0) return undefined;
+  const summary = content.slice(0, match.index).trimEnd();
+  return { sessionId, summary: summary.length > 0 ? summary : content.trim() };
 }
 
 /** Transcript notice for a compaction; ASCII `->` keeps SR/ASCII mode glyph-free. */
@@ -204,6 +224,7 @@ export async function driveAgent(
           argsSummary: argsSummary(event.args, symbols.ellipsis),
           outcome: "done",
           detail: toolDetail(event.content, symbols.ellipsis),
+          ...(event.toolName === "task" ? { subagent: subagentInfo(event.content) } : {}),
         });
       } else if (event.type === "compaction") {
         store.flushStream();
@@ -299,7 +320,29 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
   // Terminal bell when an approval card demands attention (SR mode only);
   // the sink forwards any diff attachment on the request into the TUI.
   const sink = createTuiSink(store, { permission: deps.permission, bell });
-  const tui = startTui(store, { screenReader });
+  const tui = startTui(store, {
+    screenReader,
+    footer: {
+      model: deps.model ?? "chantier",
+      sessionId: deps.session.id,
+      ...(deps.contextWindow === undefined ? {} : { contextWindow: deps.contextWindow }),
+      data: () => {
+        // Same estimate compactTaskContext uses; per render so the gauge
+        // tracks the running conversation (spec §5).
+        if (deps.contextWindow === undefined) return {};
+        const tokens = viewTokens(deps);
+        return {
+          ctxFraction: Math.min(1, tokens / deps.contextWindow),
+          compactSoon: shouldCompact({
+            tokensUsed: tokens,
+            window: deps.contextWindow,
+            reserve: DEFAULT_COMPACTION_RESERVE,
+            keepRecent: DEFAULT_COMPACTION_KEEP_RECENT,
+          }),
+        };
+      },
+    },
+  });
 
   /**
    * §6d drain: queued texts join with blank lines into the next composite
@@ -318,7 +361,6 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
   let pendingTask: string | null = null;
   for (;;) {
     const task = pendingTask ?? (await store.awaitTask());
-    pendingTask = null;
     if (task === null) {
       // finish() from Ctrl-C quits with the interrupted-code semantics.
       if (abortKind === "ctrl-c") exitCode = 130;

@@ -1,60 +1,102 @@
-import type { ApprovalDecision } from "@chantier/permissions";
-import { Box, render, Static, Text, useApp, useInput, useIsScreenReaderEnabled } from "ink";
-import { createElement, type ReactNode, useEffect, useSyncExternalStore } from "react";
-import { classifyUnifiedDiffLine, type DiffLineKind, summarizeUnifiedDiff } from "./diff.ts";
+import {
+  Box,
+  render,
+  Static,
+  Text,
+  useApp,
+  useInput,
+  useIsScreenReaderEnabled,
+  useWindowSize,
+} from "ink";
+import { createElement, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  createHistoryStore,
+  type EditorState,
+  emptyEditor,
+  type HistoryStore,
+  historyPath,
+  loadHistory,
+  TaskInput,
+} from "./input.ts";
 import type { TuiItem } from "./items.ts";
-import { markdownDivider, markdownToElements } from "./markdown.ts";
+import { keypressToDecision } from "./keys.ts";
+import { markdownToElements } from "./markdown.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
-import type { TuiPromptDetail, TuiStore } from "./store.ts";
+import type { TuiStore } from "./store.ts";
 import { isAsciiEnv, resolveSymbols, type TuiSymbols } from "./symbols.ts";
+import {
+  ApprovalCardV2,
+  Divider,
+  FooterBar,
+  QueuePreview,
+  StatusWidget,
+  ToolRow,
+} from "./widgets.ts";
 
-const PROMPT_HINT_PARTS = ["y allow", "a always", "n deny", "esc abort"] as const;
-const INPUT_HINT_PARTS = ["type a task", "enter run", "q quit"] as const;
+/** Footer data computed by the caller per render (context estimate + compact gate). */
+export interface FooterData {
+  readonly ctxFraction?: number;
+  readonly compactSoon?: boolean;
+}
 
-export function TuiApp({ store }: { store: TuiStore }) {
+export function TuiApp({
+  store,
+  footer,
+}: {
+  store: TuiStore;
+  footer?: {
+    readonly model: string;
+    readonly sessionId: string;
+    readonly contextWindow?: number;
+    readonly data?: () => FooterData;
+  };
+}) {
   const state = useSyncExternalStore(store.subscribe, () => store.state);
   const screenReader = useIsScreenReaderEnabled();
   const symbols = resolveSymbols(screenReader || isAsciiEnv(process.env.CHANTIER_ASCII));
   const { exit } = useApp();
+  const { columns, rows } = useWindowSize();
+  const [editor, setEditor] = useState<EditorState>(emptyEditor());
+  const [quitArmed, setQuitArmed] = useState(false);
+  // History loads async (file read); TaskInput guards on undefined until the
+  // first read resolves, so a missing/broken history file degrades to no recall.
+  const [history, setHistory] = useState<HistoryStore | undefined>(undefined);
+  useEffect(() => {
+    void loadHistory(historyPath()).then((entries) => {
+      setHistory(createHistoryStore({ entries, file: historyPath() }));
+    });
+  }, []);
 
+  // Global keys only: approval decisions and esc-interrupt. The editor, quit
+  // two-stage, history, and paste live in TaskInput's own useInput (mounted
+  // whenever the composer is on screen), so no key is handled twice.
   useInput((input, key) => {
     // Read state live at event time: the render closure can be a render or two
-    // behind (ink batches renders), and a stale mode/prompt pair swallows keys.
-    const { mode, prompt } = store.state;
-    if (key.ctrl) {
-      store.abort("ctrl-c");
-      return;
-    }
-    if (key.escape) {
-      store.abort("escape");
-      return;
-    }
-    if (mode === "input" && prompt === null) {
-      if (key.backspace || key.delete) {
-        store.backspaceInput();
-        return;
-      }
-      // Type the chunk's printable bytes first, then submit on Enter: a PTY
-      // can deliver a pasted line as ONE chunk ("task\r"). ink sets key.return
-      // only for a lone CR, so a bundled line is detected from the raw chunk
-      // containing a line break; handling key.return before the chars would
-      // submit an empty box.
-      const bundledReturn = /[\r\n]/.test(input ?? "");
-      if (input !== undefined && input.length > 0) {
-        for (const char of input) {
-          if (char !== "\r" && char !== "\n") store.typeInput(char);
-        }
-      }
-      if (key.return || bundledReturn) {
-        store.submitTask(store.state.inputText);
-      }
-      return;
-    }
+    // behind (ink batches renders), and a stale prompt pair swallows keys.
+    const { prompt, running } = store.state;
     if (prompt !== null) {
       // A PTY can deliver the key plus its Enter in one chunk ("y\r"): strip
       // line-break bytes before matching the decision key.
-      const decision = keypressToDecision(input.replace(/[\r\n]/g, ""));
-      if (decision !== null) store.decide(decision);
+      const decision = keypressToDecision((input ?? "").replace(/[\r\n]/g, ""));
+      if (decision !== null) {
+        store.decide(decision);
+        return;
+      }
+      // The card's own abort chord: esc denies the pending ask and notifies.
+      if (key.escape) {
+        store.abort("escape");
+        return;
+      }
+      // ctrl-c during an approval: TaskInput is locked and never sees it, so
+      // the app-level handler keeps the v0.4 abort contract. Outside the
+      // prompt, TaskInput's mounted quit handler owns ctrl-c (two-stage).
+      if (key.ctrl) {
+        store.abort("ctrl-c");
+      }
+      return;
+    }
+    if (key.escape && running !== null) {
+      store.abort("escape");
     }
   });
 
@@ -82,53 +124,80 @@ export function TuiApp({ store }: { store: TuiStore }) {
       createElement(Text, { color: "cyan", "aria-hidden": screenReader }, state.streamText),
     );
   }
-  if (state.status.length > 0) {
-    children.push(createElement(Text, { dimColor: true }, state.status));
+  if (state.running !== null && state.prompt === null) {
+    children.push(
+      createElement(StatusWidget, {
+        running: state.running,
+        status: state.statusFlash.length > 0 ? state.statusFlash : state.status,
+        symbols,
+        screenReader,
+      }),
+    );
   }
   if (state.prompt !== null) {
-    const { tool, input } = state.prompt;
+    const detail = state.promptDetail;
     children.push(
-      createElement(
-        Box,
-        {
-          flexDirection: "column",
-          borderStyle: symbols.border,
-          borderColor: "yellow",
-          paddingX: 1,
-          "aria-role": "button",
+      createElement(ApprovalCardV2, {
+        request: state.prompt,
+        detail: detail === null ? null : { diff: detail.diff },
+        symbols,
+        screenReader,
+      }),
+    );
+  }
+  if (!state.finished) {
+    if (quitArmed) {
+      children.push(createElement(Text, { dimColor: true }, "press ctrl-c again to quit"));
+    }
+    children.push(
+      createElement(TaskInput, {
+        editor,
+        onEditorChange: (next) => setEditor(next),
+        onSubmit: (text) => {
+          setEditor(emptyEditor());
+          if (store.state.running !== null) {
+            store.pushQueued(text);
+            return;
+          }
+          store.submitTask(text);
         },
-        createElement(
-          Text,
-          { bold: true, color: "yellow", "aria-label": approvalLabel(tool, input) },
-          `approve ${tool}?`,
-        ),
-        createElement(Text, { dimColor: true }, summarizeInput(input, symbols.ellipsis)),
-        diffCard(state.promptDetail, symbols),
-        createElement(Text, null, PROMPT_HINT_PARTS.join(` ${symbols.hintSeparator} `)),
-      ),
+        running: state.running !== null,
+        queuedCount: state.queued.length,
+        onQueueEdit: () => {
+          const last = store.state.queued.at(-1);
+          if (last === undefined) return;
+          store.dropQueued();
+          setEditor({ text: last, cursor: last.length });
+        },
+        locked: state.prompt !== null,
+        rows,
+        history,
+        onQuit: () => store.abort("ctrl-c"),
+        onQuitArm: () => setQuitArmed(true),
+        symbols,
+        screenReader,
+      }),
     );
   }
-  if (state.mode === "input" && !state.finished) {
-    children.push(
-      createElement(
-        Box,
-        { borderStyle: symbols.border, borderColor: "green", paddingX: 1 },
-        createElement(Text, { color: "green" }, "> "),
-        createElement(Text, null, state.inputText),
-        createElement(
-          Text,
-          { dimColor: true },
-          `  ${INPUT_HINT_PARTS.join(` ${symbols.hintSeparator} `)}`,
-        ),
-      ),
-    );
-  }
+  children.push(createElement(QueuePreview, { queued: state.queued, symbols }));
+  const footerData = footer?.data?.();
+  children.push(
+    createElement(FooterBar, {
+      model: footer?.model ?? "chantier",
+      ctxFraction: footerData?.ctxFraction,
+      compactSoon: footerData?.compactSoon === true ? true : undefined,
+      usage: state.usage,
+      sessionId: footer?.sessionId ?? "",
+      columns,
+      symbols,
+      hidden: state.prompt !== null,
+    }),
+  );
 
   return createElement(Box, { flexDirection: "column" }, ...children);
 }
 
-/** Renders one finalized transcript item (spec §1). Tool rows keep the v0.4
- * inline rendering for now — the integration wires Worker B's ToolRow ladder. */
+/** Renders one finalized transcript item (spec §1). */
 function itemNode(
   item: TuiItem,
   index: number,
@@ -143,57 +212,14 @@ function itemNode(
         ...markdownToElements(item.text, symbols, screenReader),
       );
     case "divider":
-      return createElement(Box, { key: index }, markdownDivider(item.text, symbols, screenReader));
+      return createElement(Divider, { key: index, text: item.text, symbols, screenReader });
     case "tool":
-      return createElement(
-        Box,
-        { key: index, flexDirection: "column" },
-        createElement(Text, { key: "row" }, `tool: ${item.toolName}(${item.argsSummary})`),
-        ...(item.detail === undefined
-          ? []
-          : [createElement(Text, { key: "detail", dimColor: true }, `  ${item.detail}`)]),
-      );
+      return createElement(ToolRow, { key: index, item, symbols, screenReader });
     case "info":
       return createElement(Text, { key: index }, item.text);
     case "error":
       return createElement(Text, { key: index, color: "red" }, item.text);
   }
-}
-
-/** The unified-diff attachment card, or null when the ask carries no diff. */
-function diffCard(detail: TuiPromptDetail | null, symbols: TuiSymbols): ReactNode {
-  if (detail === null) return null;
-  if (typeof detail.diff !== "string" || detail.diff.length === 0) return null;
-  const preview = summarizeUnifiedDiff(detail.diff);
-  return createElement(
-    Box,
-    {
-      flexDirection: "column",
-      borderStyle: symbols.border,
-      borderColor: "cyan",
-      paddingX: 1,
-      "aria-label": `proposed change: ${preview.additions} ${preview.additions === 1 ? "addition" : "additions"}, ${preview.deletions} ${preview.deletions === 1 ? "deletion" : "deletions"}`,
-    },
-    createElement(Text, { dimColor: true }, "proposed change"),
-    ...preview.lines.map((line, index) =>
-      createElement(Text, { key: index, ...diffTextStyle(classifyUnifiedDiffLine(line)) }, line),
-    ),
-    preview.hiddenLines > 0
-      ? createElement(Text, { dimColor: true }, `+${preview.hiddenLines} more lines`)
-      : null,
-  );
-}
-
-function diffTextStyle(kind: DiffLineKind): { color?: string; dimColor?: boolean } {
-  if (kind === "add") return { color: "green" };
-  if (kind === "del") return { color: "red" };
-  if (kind === "meta") return { dimColor: true };
-  return {};
-}
-
-function summarizeInput(input: unknown, ellipsis: string): string {
-  const json = JSON.stringify(input);
-  return json.length > 160 ? `${json.slice(0, 160)}${ellipsis}` : json;
 }
 
 /** Screen-reader label for the approval card (ink serializes it as the button name). */
@@ -212,35 +238,40 @@ function inputSubject(input: unknown): string {
   return "";
 }
 
-/** Maps a prompt keypress to a decision; null = key not handled by the prompt. */
-export function keypressToDecision(key: string): ApprovalDecision | null {
-  // PTYs can bundle the key with its Enter ("y\r") in one chunk: strip
-  // line-break bytes before matching.
-  const clean = key.replace(/[\r\n]/g, "");
-  if (clean === "y") return { approved: true };
-  if (clean === "a") return { approved: true, remember: true };
-  if (clean === "n") return { approved: false, reason: "user denied" };
-  return null;
-}
+/** Maps a prompt keypress to a decision; null = key not handled by the prompt.
+ * Re-exported from keys.ts (the pure action-map dispatch); kept at the app
+ * surface for the existing test/import surface. */
+export { keypressToDecision } from "./keys.ts";
 
 export interface TuiOptions {
   /** Opt-in screen-reader rendering (also honored: CHANTIER_SCREEN_READER=1). */
   readonly screenReader?: boolean;
+  /** Footer segments; session id + model come from the CLI, contextWindow gates the ctx segment. */
+  readonly footer?: {
+    readonly model: string;
+    readonly sessionId: string;
+    readonly contextWindow?: number;
+    readonly data?: () => FooterData;
+  };
 }
 
 export interface TuiInstance {
   waitUntilExit(): Promise<void>;
 }
-
-/** Mounts the TUI. The store drives everything; the caller drives the agent. */
 export function startTui(store: TuiStore, options: TuiOptions = {}): TuiInstance {
   const screenReader = resolveScreenReader(
     options.screenReader,
     process.env.CHANTIER_SCREEN_READER,
   );
-  const instance = render(createElement(TuiApp, { store }), {
-    exitOnCtrlC: false,
-    ...(screenReader ? { isScreenReaderEnabled: true } : {}),
-  });
+  const instance = render(
+    createElement(TuiApp, {
+      store,
+      ...(options.footer === undefined ? {} : { footer: options.footer }),
+    }),
+    {
+      exitOnCtrlC: false,
+      ...(screenReader ? { isScreenReaderEnabled: true } : {}),
+    },
+  );
   return { waitUntilExit: () => instance.waitUntilExit().then(() => undefined) };
 }

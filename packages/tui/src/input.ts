@@ -260,7 +260,7 @@ export function TaskInput({
 }: TaskInputProps): ReactNode {
   // Full paste text lives here; the editor only shows chips (§6e).
   const pasteChunks = useRef(new Map<string, string>());
-  const quitTimer = useRef<NodeJS.Timeout | null>(null);
+  const quitTimer = useRef<NodeJS.Timeout | undefined>(undefined);
   const quitArmed = useRef(false);
 
   usePaste(
@@ -313,7 +313,7 @@ export function TaskInput({
       clearTimeout(quitTimer.current);
       quitTimer.current = setTimeout(() => {
         quitArmed.current = false;
-        quitTimer.current = null;
+        quitTimer.current = undefined;
       }, quitWindowMs);
       return;
     }

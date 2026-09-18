@@ -95,31 +95,52 @@ describe("approval prompt", () => {
     view.unmount();
   });
 
-  it("escape with no pending prompt aborts mid-run without a decision", async () => {
+  it("escape aborts a running agent without a decision (idle escape is inert, §6b)", async () => {
     const aborts: string[] = [];
     const store = createTuiStore({ onAbort: () => aborts.push("escape") });
     store.appendStream("partial text");
     const view = await renderStore(store);
     expect(view.frame()).toContain("partial text");
+    // BUG-4 fix: an idle escape (no run in flight) must NOT abort the app.
+    await view.escape();
+    // Bounded settle: ink's stdin pipeline runs on real timers (named
+    // exception above); fake timers cannot drive node's readline escape decode.
+    const settled = Promise.withResolvers<void>();
+    setTimeout(() => settled.resolve(), 60);
+    await settled.promise;
+    expect(aborts).toEqual([]);
+    // While a run is in flight, esc interrupts and keeps completed work.
+    store.setRunning({ sinceMs: Date.now() });
     await view.escape();
     await waitFor(() => aborts.length > 0);
     expect(aborts).toEqual(["escape"]);
     view.unmount();
   });
 
-  it("task prompt: typed text flows to submitTask; q quits", async () => {
+  it("task prompt: typed text submits through the composer; mid-run q queues, idle q quits", async () => {
     const store = createTuiStore({ onAbort: () => {} });
     const taskPending = store.awaitTask();
     const view = await renderStore(store);
     for (const char of "write hi.txt") {
       await view.key(char);
     }
-    expect(store.state.inputText).toBe("write hi.txt");
     await view.key("\r");
     await waitFor(() => store.state.mode === "running");
     expect(await taskPending).toBe("write hi.txt");
     expect(store.state.mode).toBe("running");
 
+    // §6d: typing while a run streams queues the message (the loop drains
+    // it after the run settles, CC semantics). Production sets running via
+    // the loop; the test mirrors that before typing.
+    store.setRunning({ sinceMs: Date.now() });
+    await view.key("q");
+    await view.key("\r");
+    await waitFor(() => store.state.queued.length > 0);
+    expect(store.state.queued).toEqual(["q"]);
+
+    // §6b/q-quit: with no run in flight, submitting the quit word resolves
+    // the awaitTask signal with null (the loop then exits).
+    store.setRunning(null);
     const quitPending = store.awaitTask();
     await view.key("q");
     await view.key("\r");

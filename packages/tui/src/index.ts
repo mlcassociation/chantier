@@ -11,14 +11,6 @@ export {
   type DiffPreview,
   summarizeUnifiedDiff,
 } from "./diff.ts";
-export type { RunningState, TuiItem, TuiStoreV5, UsageTotals } from "./items.ts";
-export {
-  hasMarkdownSyntax,
-  markdownDivider,
-  markdownToElements,
-  type SafeFlush,
-  takeSafeFlush,
-} from "./markdown.ts";
 export {
   applyEditorAction,
   createHistoryStore,
@@ -37,6 +29,7 @@ export {
   TaskInput,
   type TaskInputProps,
 } from "./input.ts";
+export type { RunningState, TuiItem, TuiStoreV5, UsageTotals } from "./items.ts";
 // v0.5 additions (Worker B) — appended at the file tail so parallel edits
 // elsewhere in this file merge cleanly (integration contract, spec §11).
 export {
@@ -47,6 +40,13 @@ export {
   keypressToDecision,
   matches,
 } from "./keys.ts";
+export {
+  hasMarkdownSyntax,
+  markdownDivider,
+  markdownToElements,
+  type SafeFlush,
+  takeSafeFlush,
+} from "./markdown.ts";
 export { resolveScreenReader } from "./screen-reader.ts";
 export {
   type AbortKind,

@@ -182,6 +182,7 @@ async function main(): Promise<number> {
       messages,
       maxTurns,
       contextWindow,
+      model,
       screenReader: values["screen-reader"],
     });
   }
