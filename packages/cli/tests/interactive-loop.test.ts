@@ -49,6 +49,7 @@ const fakeTui = vi.hoisted(() => {
       mode: "input",
       items,
       streamText: "",
+      todos: [],
       status: "",
       running: null,
       queued: [],
@@ -61,6 +62,8 @@ const fakeTui = vi.hoisted(() => {
     };
     const store: FakeStore = {
       state,
+      todos: [],
+      setTodos: () => {},
       subscribe: () => () => {},
       appendStream: () => {},
       flushStream: () => {},

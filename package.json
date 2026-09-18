@@ -13,7 +13,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/permissions && tsc -p packages/core && tsc -p packages/providers && tsc -p packages/tools && tsc -p packages/tui && tsc -p packages/cli",
+    "typecheck": "tsc -p packages/permissions && tsc -p packages/core && tsc -p packages/providers && tsc -p packages/tools && tsc -p packages/tui && tsc -p packages/cli && tsc -p packages/mcp",
     "lint": "biome check .",
     "fmt": "biome check --write ."
   },

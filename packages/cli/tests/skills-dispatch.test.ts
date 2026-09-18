@@ -67,6 +67,7 @@ const fakeTui = vi.hoisted(() => {
       mode: "input",
       items,
       streamText: "",
+      todos: [],
       status: "",
       running: null,
       queued: [],
@@ -79,6 +80,12 @@ const fakeTui = vi.hoisted(() => {
     };
     const store: FakeStore = {
       state,
+      get todos() {
+        return state.todos;
+      },
+      setTodos: (steps: readonly TodoStep[]) => {
+        setTodosCalls.push(steps);
+      },
       subscribe: () => () => {},
       appendStream: () => {},
       flushStream: () => {},
@@ -151,9 +158,6 @@ const fakeTui = vi.hoisted(() => {
           return;
         }
         mailbox = task;
-      },
-      setTodos: (steps: readonly TodoStep[]) => {
-        setTodosCalls.push(steps);
       },
     };
     stores.push(store);
