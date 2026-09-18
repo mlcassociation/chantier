@@ -1,14 +1,14 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ModelEvent, ToolDefinition } from "@chantier/core";
+import type { ToolDefinition } from "@chantier/core";
 import { createSessionStore, type SessionStore } from "@chantier/core";
 import { createPermissionEngine, createRememberingEngine } from "@chantier/permissions";
 import { buildTools } from "@chantier/tools";
 import { createTuiStore } from "@chantier/tui";
 import { afterEach, describe, expect, it } from "vitest";
 import { scriptedAdapter } from "../../core/tests/helpers/scripted.ts";
-import { driveAgent, type InteractiveDeps, subagentInfo } from "../src/interactive.ts";
+import { driveAgent, type InteractiveDeps } from "../src/interactive.ts";
 
 /**
  * REAL-seam coverage: the loop tests mock @chantier/tui, so the merged
