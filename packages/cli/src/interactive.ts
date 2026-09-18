@@ -23,7 +23,6 @@ import {
   startTui,
   type TuiPromptDetail,
   type TuiStore,
-  type TuiStoreV5,
 } from "@chantier/tui";
 
 export interface InteractiveDeps {
@@ -77,11 +76,12 @@ function toolDetail(content: string, ellipsis: string): string | undefined {
 /**
  * Parses the task tool's result footer (spawnSubagent appends
  * `(subagent session: <id>)`) into the §4b lane payload: summary = content
- * above the footer, sessionId = the footer id. No footer → null (the card
- * never renders without a session reference).
+ * above the footer, sessionId = the footer id. No footer → undefined (the
+ * card never renders without a session reference). The id charset accepts
+ * the timestamp-prefixed shape (T/Z suffixes).
  */
 export function subagentInfo(content: string): { sessionId: string; summary: string } | undefined {
-  const match = /\(subagent session: ([0-9a-f-]+)\)\s*$/.exec(content.trimEnd());
+  const match = /\(subagent session: ([^)]+)\)\s*$/.exec(content.trimEnd());
   if (match === null) return undefined;
   const sessionId = match[1];
   if (sessionId === undefined || sessionId.length === 0) return undefined;
@@ -316,7 +316,7 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
       abortKind = kind;
       currentController?.abort();
     },
-  }) as TuiStore & TuiStoreV5;
+  });
   // Terminal bell when an approval card demands attention (SR mode only);
   // the sink forwards any diff attachment on the request into the TUI.
   const sink = createTuiSink(store, { permission: deps.permission, bell });

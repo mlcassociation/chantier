@@ -213,7 +213,8 @@ export const QUIT_HINT = "press ctrl-c again to quit";
 const INPUT_HINT_PARTS = ["type a task", "enter run", "q quit"] as const;
 
 /** Default two-stage quit window (§6c). */
-const QUIT_WINDOW_MS = 2000;
+/** Two-stage quit window (§6c); exported so the App's armed-hint display matches. */
+export const QUIT_WINDOW_MS = 2000;
 
 export interface TaskInputProps {
   /** Controlled editor state; the host owns the single source of truth. */

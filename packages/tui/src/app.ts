@@ -8,7 +8,14 @@ import {
   useIsScreenReaderEnabled,
   useWindowSize,
 } from "ink";
-import { createElement, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  createElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   createHistoryStore,
   type EditorState,
@@ -16,6 +23,7 @@ import {
   type HistoryStore,
   historyPath,
   loadHistory,
+  QUIT_WINDOW_MS,
   TaskInput,
 } from "./input.ts";
 import type { TuiItem } from "./items.ts";
@@ -58,6 +66,17 @@ export function TuiApp({
   const { columns, rows } = useWindowSize();
   const [editor, setEditor] = useState<EditorState>(emptyEditor());
   const [quitArmed, setQuitArmed] = useState(false);
+  // The armed hint must clear with the SAME window TaskInput disarms on;
+  // otherwise the hint lingers after the quit window expires.
+  const quitHintTimer = useRef<NodeJS.Timeout | undefined>(undefined);
+  const armQuitHint = (): void => {
+    setQuitArmed(true);
+    clearTimeout(quitHintTimer.current);
+    quitHintTimer.current = setTimeout(() => {
+      setQuitArmed(false);
+      quitHintTimer.current = undefined;
+    }, QUIT_WINDOW_MS);
+  };
   // History loads async (file read); TaskInput guards on undefined until the
   // first read resolves, so a missing/broken history file degrades to no recall.
   const [history, setHistory] = useState<HistoryStore | undefined>(undefined);
@@ -173,7 +192,7 @@ export function TuiApp({
         rows,
         history,
         onQuit: () => store.abort("ctrl-c"),
-        onQuitArm: () => setQuitArmed(true),
+        onQuitArm: armQuitHint,
         symbols,
         screenReader,
       }),
