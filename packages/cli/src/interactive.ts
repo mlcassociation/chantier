@@ -52,9 +52,20 @@ function summarizeResult(
   return `(${event.turns} turn${event.turns === 1 ? "" : "s"}${usage})`;
 }
 
-function argsSummary(args: Record<string, unknown>): string {
+function argsSummary(args: Record<string, unknown>, ellipsis: string): string {
   const json = JSON.stringify(args);
-  return json.length > 120 ? `${json.slice(0, 120)}...` : json;
+  return json.length > 120 ? `${json.slice(0, 120)}${ellipsis}` : json;
+}
+
+/** BUG-1 output preview: first non-empty line of the result content, 120 chars max. */
+function toolDetail(content: string, ellipsis: string): string | undefined {
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) {
+      return trimmed.length > 120 ? `${trimmed.slice(0, 120)}${ellipsis}` : trimmed;
+    }
+  }
+  return undefined;
 }
 
 /** Transcript notice for a compaction; ASCII `->` keeps SR/ASCII mode glyph-free. */
@@ -108,7 +119,10 @@ export async function compactTaskContext(
 ): Promise<void> {
   if (deps.contextWindow === undefined) {
     if (options.manual === true) {
-      store.pushLine("compaction unavailable: no context window for this model");
+      store.pushItem({
+        kind: "info",
+        text: "compaction unavailable: no context window for this model",
+      });
     }
     return;
   }
@@ -122,17 +136,23 @@ export async function compactTaskContext(
       signal: options.signal,
     });
   } catch (error) {
-    store.pushLine(`compaction failed: ${(error as Error).message}`);
+    store.pushItem({ kind: "error", text: `compaction failed: ${(error as Error).message}` });
     return;
   }
   if (outcome === null) {
     if (options.manual === true) {
-      store.pushLine(`context compacted (no-op): ~${viewTokens(deps)} tokens in view`);
+      store.pushItem({
+        kind: "info",
+        text: `context compacted (no-op): ~${viewTokens(deps)} tokens in view`,
+      });
     }
     return;
   }
   await reloadMessages(deps);
-  store.pushLine(compactionNotice(outcome.tokensBefore, outcome.tokensAfter));
+  store.pushItem({
+    kind: "divider",
+    text: compactionNotice(outcome.tokensBefore, outcome.tokensAfter),
+  });
 }
 
 /** Feeds agent events into the store; returns after the run settles. */
@@ -151,7 +171,7 @@ export async function driveAgent(
   const ascii =
     resolveScreenReader(deps.screenReader, process.env.CHANTIER_SCREEN_READER) ||
     isAsciiEnv(process.env.CHANTIER_ASCII);
-  let streamTail = "";
+  const symbols = resolveSymbols(ascii);
   try {
     for await (const event of runAgent({
       adapter: deps.adapter,
@@ -170,29 +190,44 @@ export async function driveAgent(
     })) {
       if (event.type === "text-delta") {
         store.appendStream(event.text);
-        // Finalize at paragraph boundaries so screen readers get coherent
-        // chunks instead of one growing live region (gemini-cli's
-        // findLastSafeSplitPoint idea, text-only version). The 2-char tail
-        // sees the boundary even when it straddles two chunks.
-        streamTail = `${streamTail}${event.text}`.slice(-2);
+        // Paragraph-boundary flush (BUG-2): the store splits its buffer at the
+        // last safe boundary via takeSafeFlush — flushed text lands as one
+        // markdown item, the remainder (an open fence, a half paragraph) stays
+        // the live region. Newline-gated: a boundary needs a line break.
+        if (event.text.includes("\n")) store.flushStream({ safe: true });
       } else if (event.type === "tool-result") {
         store.flushStream();
-        store.pushLine(`tool: ${event.toolName}(${argsSummary(event.args)})`);
+        store.pushItem({
+          kind: "tool",
+          toolName: event.toolName,
+          argsSummary: argsSummary(event.args, symbols.ellipsis),
+          outcome: "done",
+          detail: toolDetail(event.content, symbols.ellipsis),
+        });
       } else if (event.type === "compaction") {
         store.flushStream();
-        store.pushLine(compactionNotice(event.tokensBefore, event.tokensAfter));
+        store.pushItem({
+          kind: "divider",
+          text: compactionNotice(event.tokensBefore, event.tokensAfter),
+        });
       } else {
         store.flushStream();
-        // The usage separator routes through the centralized symbols helper
-        // like every other decorative glyph, so ASCII/SR mode can never leak
-        // a bare `·` into the transcript buffer.
-        store.pushLine(summarizeResult(event, resolveSymbols(ascii).hintSeparator));
+        if (event.usage !== undefined) {
+          // Cumulative across runs (spec §5 footer): each result's usage adds.
+          const prev = store.state.usage;
+          store.setUsage({
+            inputTokens: (prev?.inputTokens ?? 0) + event.usage.inputTokens,
+            outputTokens: (prev?.outputTokens ?? 0) + event.usage.outputTokens,
+          });
+        }
+        store.pushItem({ kind: "info", text: summarizeResult(event, symbols.hintSeparator) });
       }
     }
     return "done";
   } catch (error) {
     if (signal.aborted) return "aborted";
-    store.pushLine(`Error: ${(error as Error).message}`);
+    store.flushStream();
+    store.pushItem({ kind: "error", text: `Error: ${(error as Error).message}` });
     return "error";
   }
 }
@@ -210,13 +245,14 @@ export function createTuiSink(store: TuiStore, options: TuiSinkOptions): Approva
       options.bell?.();
       const decision = await store.ask(req, readDiffDetail(req));
       if (decision.remember === true) options.permission.remember(req.tool);
-      store.pushLine(
-        decision.approved
+      store.pushItem({
+        kind: "info",
+        text: decision.approved
           ? decision.remember === true
             ? `tool: approved (always): ${req.tool}`
             : `tool: approved: ${req.tool}`
           : `tool: denied (${decision.reason ?? "user"})`,
-      );
+      });
       return decision;
     },
   };
@@ -286,7 +322,7 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
       await compactTaskContext(store, deps, { signal: currentController.signal });
     }
     if (outcome === "aborted") {
-      store.pushLine("cancelled.");
+      store.pushItem({ kind: "info", text: "cancelled." });
       if (abortKind === "ctrl-c") {
         exitCode = 130;
         break;

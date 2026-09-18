@@ -2,6 +2,8 @@ import type { ApprovalDecision } from "@chantier/permissions";
 import { Box, render, Static, Text, useApp, useInput, useIsScreenReaderEnabled } from "ink";
 import { createElement, type ReactNode, useEffect, useSyncExternalStore } from "react";
 import { classifyUnifiedDiffLine, type DiffLineKind, summarizeUnifiedDiff } from "./diff.ts";
+import type { TuiItem } from "./items.ts";
+import { markdownDivider, markdownToElements } from "./markdown.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
 import type { TuiPromptDetail, TuiStore } from "./store.ts";
 import { isAsciiEnv, resolveSymbols, type TuiSymbols } from "./symbols.ts";
@@ -66,9 +68,10 @@ export function TuiApp({ store }: { store: TuiStore }) {
 
   const children: Array<ReactNode> = [
     createElement(Static, {
-      items: [...state.lines],
+      items: [...state.items],
       // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
-      children: (item: unknown, index: number) => createElement(Text, { key: index }, String(item)),
+      children: (item: unknown, index: number) =>
+        itemNode(item as TuiItem, index, symbols, screenReader),
     }),
   ];
   if (state.streamText.length > 0) {
@@ -122,6 +125,39 @@ export function TuiApp({ store }: { store: TuiStore }) {
   }
 
   return createElement(Box, { flexDirection: "column" }, ...children);
+}
+
+/** Renders one finalized transcript item (spec §1). Tool rows keep the v0.4
+ * inline rendering for now — the integration wires Worker B's ToolRow ladder. */
+function itemNode(
+  item: TuiItem,
+  index: number,
+  symbols: TuiSymbols,
+  screenReader: boolean,
+): ReactNode {
+  switch (item.kind) {
+    case "markdown":
+      return createElement(
+        Box,
+        { key: index, flexDirection: "column" },
+        ...markdownToElements(item.text, symbols, screenReader),
+      );
+    case "divider":
+      return createElement(Box, { key: index }, markdownDivider(item.text, symbols, screenReader));
+    case "tool":
+      return createElement(
+        Box,
+        { key: index, flexDirection: "column" },
+        createElement(Text, { key: "row" }, `tool: ${item.toolName}(${item.argsSummary})`),
+        ...(item.detail === undefined
+          ? []
+          : [createElement(Text, { key: "detail", dimColor: true }, `  ${item.detail}`)]),
+      );
+    case "info":
+      return createElement(Text, { key: index }, item.text);
+    case "error":
+      return createElement(Text, { key: index, color: "red" }, item.text);
+  }
 }
 
 /** The unified-diff attachment card, or null when the ask carries no diff. */

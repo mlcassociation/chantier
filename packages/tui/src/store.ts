@@ -1,4 +1,6 @@
 import type { ApprovalDecision, ApprovalRequest } from "@chantier/permissions";
+import type { RunningState, TuiItem, UsageTotals } from "./items.ts";
+import { takeSafeFlush } from "./markdown.ts";
 
 export type TuiMode = "input" | "running";
 
@@ -9,12 +11,20 @@ export interface TuiPromptDetail {
 
 export interface TuiState {
   readonly mode: TuiMode;
-  /** Finalized transcript lines (rendered once, never re-rendered). */
-  readonly lines: readonly string[];
-  /** In-progress model text, replaced by lines once finalized. */
+  /** Finalized transcript items (rendered once via Static, never re-rendered). */
+  readonly items: readonly TuiItem[];
+  /** In-progress model text (the live region), replaced by items once finalized. */
   readonly streamText: string;
   /** Transient status line (e.g. "thinking…"); "" hides it. */
   readonly status: string;
+  /** Status-widget state (spinner + elapsed); null hides the widget. */
+  readonly running: RunningState | null;
+  /** Tasks queued while a run is in flight; drained when the run settles. */
+  readonly queued: readonly string[];
+  /** Cumulative token usage for the footer; undefined until the first result. */
+  readonly usage: UsageTotals | undefined;
+  /** Transient flash message that falls back to the persistent status after a few seconds. */
+  readonly statusFlash: string;
   /** Pending approval request; null while the model is streaming. */
   readonly prompt: ApprovalRequest | null;
   /** Optional diff attachment for the pending ask; null when absent. */
@@ -29,14 +39,32 @@ export type TuiStore = {
   readonly state: TuiState;
   /** React-side subscription; returns an unsubscribe function. */
   subscribe(listener: () => void): () => void;
-  /** Appends one finalized transcript line. */
-  pushLine(line: string): void;
+  /** Appends one finalized transcript item (rendered once, never re-rendered). */
+  pushItem(item: TuiItem): void;
   /** Appends in-flight model text; flushStream() finalizes it. */
   appendStream(text: string): void;
-  /** Moves buffered stream text (if any) into finalized lines. */
-  flushStream(): void;
+  /**
+   * Finalizes buffered stream text as a markdown item (spec §1). Without
+   * options, everything buffered becomes one item. With `{ safe: true }`, the
+   * buffer splits at its last safe paragraph boundary (takeSafeFlush): the
+   * flushed prefix becomes a markdown item and the remainder stays the live
+   * region — a half-open code fence is never finalized mid-stream.
+   */
+  flushStream(options?: { safe?: boolean }): void;
   /** Shows a transient status (e.g. "thinking…"); "" hides it. */
   setStatus(status: string): void;
+  /** Shows/clears the status-widget running state (spinner + elapsed). */
+  setRunning(running: RunningState | null): void;
+  /** Queues a task typed while a run is in flight. */
+  pushQueued(text: string): void;
+  /** Replaces the LAST queued text (the ↑-edit path); no-op when empty. */
+  editQueued(text: string): void;
+  /** Removes the LAST queued text; no-op when empty. */
+  dropQueued(): void;
+  /** Replaces the footer usage totals; undefined clears them. */
+  setUsage(usage: UsageTotals | undefined): void;
+  /** Transient flash message; falls back to the persistent status after ~5s. */
+  flashStatus(text: string): void;
   /** Enters task-input mode; resolves the previous task signal if still open. */
   awaitTask(defaultText?: string): Promise<string | null>;
   /** Submits the typed task text; null = user quit. */
@@ -50,7 +78,7 @@ export type TuiStore = {
   decide(decision: ApprovalDecision): void;
   /**
    * Esc aborts the current work (deny pending prompt + notify); Ctrl-C quits
-   * the app with a nonzero exit signal.
+   * the app with a nonzero exit signal. The queue survives aborts.
    */
   abort(kind: AbortKind): void;
   /** Marks the store finished; App unmounts on the next render. */
@@ -65,9 +93,13 @@ export function createTuiStore(
 ): TuiStore {
   let state: TuiState = {
     mode: "input",
-    lines: [],
+    items: [],
     streamText: "",
     status: "",
+    running: null,
+    queued: [],
+    usage: undefined,
+    statusFlash: "",
     prompt: null,
     promptDetail: null,
     inputText: "",
@@ -102,6 +134,16 @@ export function createTuiStore(
       set({ streamText: state.streamText + chunk });
     }, STREAM_COALESCE_MS);
   };
+  // Status flash (Hermes restoreStatusAfter): the flash shows alone for a few
+  // seconds, then the widget falls back to the persistent status.
+  const STATUS_FLASH_MS = 5000;
+  let flashTimer: NodeJS.Timeout | null = null;
+  const disarmFlashTimer = (): void => {
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer);
+      flashTimer = null;
+    }
+  };
   /** Normalizes an ask detail: only a non-empty string diff survives. */
   const normalizeDetail = (detail: TuiPromptDetail | undefined): { diff: string } | null => {
     if (typeof detail?.diff === "string" && detail.diff.length > 0) return { diff: detail.diff };
@@ -116,24 +158,65 @@ export function createTuiStore(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    pushLine(line) {
-      set({ lines: [...state.lines, line] });
+    pushItem(item) {
+      set({ items: [...state.items, item] });
     },
     appendStream(text) {
       pendingStream += text;
       if (pendingStream.length > 0) armStreamTimer();
     },
-    flushStream() {
+    flushStream(options) {
       disarmStreamTimer();
       // Order matters: state.streamText is the already-delivered prefix,
       // pendingStream the newer chunks still waiting on the coalesce timer.
       const buffered = `${state.streamText}${pendingStream}`;
       pendingStream = "";
       if (buffered.length === 0) return;
-      set({ lines: [...state.lines, ...buffered.split("\n")], streamText: "" });
+      if (options?.safe === true) {
+        const { flushed, rest } = takeSafeFlush(buffered);
+        if (flushed.length === 0) {
+          // No safe boundary (plain text mid-paragraph, or an open fence):
+          // everything stays the live region; fold in pending chunks.
+          if (rest !== state.streamText) set({ streamText: rest });
+          return;
+        }
+        set({ items: [...state.items, { kind: "markdown", text: flushed }], streamText: rest });
+        return;
+      }
+      set({ items: [...state.items, { kind: "markdown", text: buffered }], streamText: "" });
     },
     setStatus(status) {
       set({ status });
+    },
+    setRunning(running) {
+      set({ running });
+    },
+    pushQueued(text) {
+      set({ queued: [...state.queued, text] });
+    },
+    editQueued(text) {
+      const queued = state.queued;
+      if (queued.length === 0) return;
+      set({ queued: [...queued.slice(0, -1), text] });
+    },
+    dropQueued() {
+      if (state.queued.length === 0) return;
+      set({ queued: state.queued.slice(0, -1) });
+    },
+    setUsage(usage) {
+      set({ usage });
+    },
+    flashStatus(text) {
+      disarmFlashTimer();
+      if (text.length === 0) {
+        set({ statusFlash: "" });
+        return;
+      }
+      flashTimer = setTimeout(() => {
+        flashTimer = null;
+        set({ statusFlash: "" });
+      }, STATUS_FLASH_MS);
+      set({ statusFlash: text });
     },
     backspaceInput() {
       set({ inputText: state.inputText.slice(0, -1) });
