@@ -154,6 +154,23 @@ export function createTuiStore(
     get state() {
       return state;
     },
+    // TuiStoreV5 contract fields: the runInteractive loop consumes them
+    // store-level while the App reads the same values from state.
+    get items() {
+      return state.items;
+    },
+    get running() {
+      return state.running;
+    },
+    get queued() {
+      return state.queued;
+    },
+    get usage() {
+      return state.usage;
+    },
+    get statusFlash() {
+      return state.statusFlash;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
