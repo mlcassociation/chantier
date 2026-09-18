@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+### Reading surface
+
+- Markdown rendering with a fence-safe streaming flush: finalized text renders
+  styled (headers, lists, fenced code), and a half-open code fence is never
+  committed mid-stream. Plain text skips the parser entirely.
+- Tool results are now displayed: each tool call shows a 1–2 line output
+  preview (previously the results were discarded).
+- Compaction renders as an inline divider at its point in the transcript;
+  the scrollback above it is untouched.
+
+### Activity surface
+
+- Per-tool rows with duration; task delegations render as a subagent card
+  with the child's summary and its session id.
+- A working indicator with spinner, elapsed clock, anti-jitter verb padding,
+  and "esc to interrupt"; failures are never hidden even when detail is
+  collapsed.
+
+### Status surface
+
+- Footer: model, context gauge (color thresholds 50/80/95% with a
+  "compaction soon" warning sharing the real compaction math), token totals,
+  and the session id — whole segments drop as the terminal narrows, never
+  truncated mid-segment, and hidden entirely while an approval card is up.
+
+### Input surface
+
+- Queue messages while a run streams ("queued: … ↑ to edit"); the queue
+  drains into the next task when the run settles, including right after an
+  interrupt.
+- Paste chips: large pastes collapse to `[pasted +N lines]` and submit in
+  full; per-character paste storms are gone.
+- Persistent command history (`~/.chantier/history.jsonl`, ↑/↓ recall) and
+  emacs line editing (ctrl+a/e/b/f/k/u/w).
+- Keyboard shortcuts route through named actions; ctrl-c is the only quit
+  chord (a stray ctrl+key no longer exits), and escape no longer aborts an
+  idle session. Two-stage ctrl-c guards against accidental exits mid-run.
+
+### Fixes
+
+- Streamed text finalizes at paragraph boundaries (previously a long
+  text-only turn stayed in one live region; screen readers heard nothing
+  until the run ended).
+- The approval card shows a humanized header (path + change counts, command)
+  instead of raw JSON.
+
 ## 0.4.0 — 2026-09-17
 
 ### Subagents
