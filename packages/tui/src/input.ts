@@ -369,16 +369,22 @@ export function TaskInput({
     }
     // Type the chunk's printable bytes first, then submit on Enter: a PTY
     // can deliver a pasted line as ONE chunk ("task\r"); ink sets key.return
-    // only for a lone CR (v0.4 lesson).
+    // only for a lone CR (v0.4 lesson). The submit must see the POST-insert
+    // text, so it reads the locally advanced editor, not the render-closure
+    // prop (react state updates land after this handler returns).
     const bundledReturn = /[\r\n]/.test(input ?? "");
+    let current = editor;
     if (input !== undefined && input.length > 0) {
       const printable = [...input].filter((char) => char !== "\r" && char !== "\n");
-      if (printable.length > 0) onEditorChange(editorInsert(editor, printable.join("")));
+      if (printable.length > 0) {
+        current = editorInsert(current, printable.join(""));
+        onEditorChange(current);
+      }
     }
     if (key.return || bundledReturn) {
       // Expand held paste text BEFORE dropping the chunk map: the submit
       // must carry the full pasted content, not the chip markers (§6e).
-      const expanded = expandPasteChips(editor.text, pasteChunks.current);
+      const expanded = expandPasteChips(current.text, pasteChunks.current);
       pasteChunks.current.clear();
       // Append on submit (§6f); record() collapses consecutive dupes and
       // ignores whitespace-only drafts.
