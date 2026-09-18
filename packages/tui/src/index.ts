@@ -1,6 +1,5 @@
 export {
   approvalLabel,
-  keypressToDecision,
   startTui,
   TuiApp,
   type TuiInstance,
@@ -12,7 +11,7 @@ export {
   type DiffPreview,
   summarizeUnifiedDiff,
 } from "./diff.ts";
-export type { RunningState, TuiItem, UsageTotals } from "./items.ts";
+export type { RunningState, TuiItem, TuiStoreV5, UsageTotals } from "./items.ts";
 export {
   hasMarkdownSyntax,
   markdownDivider,
@@ -20,6 +19,34 @@ export {
   type SafeFlush,
   takeSafeFlush,
 } from "./markdown.ts";
+export {
+  applyEditorAction,
+  createHistoryStore,
+  type EditorAction,
+  type EditorState,
+  editorBackspace,
+  editorInsert,
+  emptyEditor,
+  expandPasteChips,
+  type HistoryStore,
+  historyPath,
+  loadHistory,
+  type PasteResult,
+  pasteChip,
+  QUIT_HINT,
+  TaskInput,
+  type TaskInputProps,
+} from "./input.ts";
+// v0.5 additions (Worker B) — appended at the file tail so parallel edits
+// elsewhere in this file merge cleanly (integration contract, spec §11).
+export {
+  ACTION_CHORDS,
+  type ActionId,
+  APPROVAL_HINT_PARTS,
+  type Keychord,
+  keypressToDecision,
+  matches,
+} from "./keys.ts";
 export { resolveScreenReader } from "./screen-reader.ts";
 export {
   type AbortKind,
@@ -29,3 +56,44 @@ export {
   type TuiStore,
 } from "./store.ts";
 export { isAsciiEnv, resolveSymbols, type TuiSymbols } from "./symbols.ts";
+export {
+  type ApprovalCardDetail,
+  ApprovalCardV2,
+  type ApprovalCardV2Props,
+  type ApprovalCardV2Spec,
+  approvalCardSpec,
+  approvalSrLabel,
+  ctxBar,
+  Divider,
+  type DividerProps,
+  dividerLine,
+  FooterBar,
+  type FooterBarProps,
+  footerSegments,
+  formatDuration,
+  formatElapsed,
+  formatTokenCount,
+  formatTokens,
+  humanizeApproval,
+  previewLine,
+  QUEUE_PREVIEW_MAX_ROWS,
+  QueuePreview,
+  type QueuePreviewProps,
+  queuePreviewLines,
+  type RowSpec,
+  STATUS_VERB_WIDTH,
+  StatusWidget,
+  type StatusWidgetProps,
+  SUBAGENT_SUMMARY_MAX_LINES,
+  SubagentCard,
+  type SubagentCardProps,
+  spinnerFrame,
+  statusLines,
+  subagentLines,
+  type ToolItem,
+  ToolRow,
+  type ToolRowProps,
+  toolRowLines,
+  toolRowSrText,
+  withErrorBackstop,
+} from "./widgets.ts";

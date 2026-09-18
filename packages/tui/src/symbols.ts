@@ -12,18 +12,61 @@ export interface TuiSymbols {
   readonly hintSeparator: string;
   /** Truncation ellipsis: "…" normally, "..." in ASCII mode. */
   readonly ellipsis: string;
+  /**
+   * Spinner animation frames (v0.5 status widget, spec §4a): the 10-frame
+   * braille cycle normally, the 4-glyph `|/-\` cycle in ASCII mode.
+   * `spinnerFrame` wraps per set, so no timing code depends on the count.
+   */
+  readonly spinnerFrames: readonly string[];
+  /** Tool/task row bullet: "▸" normally, ">" in ASCII mode (§8 parity). */
+  readonly runGlyph: string;
+  /** Tree corner for detail and summary blocks: "└" normally, "+" in ASCII. */
+  readonly subGlyph: string;
+  /** Failed-tool glyph: "✗" normally, "x" in ASCII mode. */
+  readonly errorGlyph: string;
+  /** Divider rule cell: "─" normally, "-" in ASCII mode (§2d). */
+  readonly rule: string;
+  /** Context-bar cells: filled "▮" / empty "▯", ASCII "#" / "-" (§5). */
+  readonly barFilled: string;
+  readonly barEmpty: string;
+  /** Forward arrow: "→" normally, "->" in ASCII mode (divider text, §2d). */
+  readonly arrow: string;
+  /** Recall hint arrow: "↑" normally, "^" in ASCII mode (queue preview §6d). */
+  readonly arrowUp: string;
+  /** Minus sign in diff counts: "−" normally, "-" in ASCII mode (§7). */
+  readonly minus: string;
 }
 
 export const UNICODE_SYMBOLS: TuiSymbols = {
   border: "round",
   hintSeparator: "·",
   ellipsis: "…",
+  spinnerFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+  runGlyph: "▸",
+  subGlyph: "└",
+  errorGlyph: "✗",
+  rule: "─",
+  barFilled: "▮",
+  barEmpty: "▯",
+  arrow: "→",
+  arrowUp: "↑",
+  minus: "−",
 };
 
 export const ASCII_SYMBOLS: TuiSymbols = {
   border: "single",
   hintSeparator: "|",
   ellipsis: "...",
+  spinnerFrames: ["|", "/", "-", "\\"],
+  runGlyph: ">",
+  subGlyph: "+",
+  errorGlyph: "x",
+  rule: "-",
+  barFilled: "#",
+  barEmpty: "-",
+  arrow: "->",
+  arrowUp: "^",
+  minus: "-",
 };
 
 export function resolveSymbols(ascii: boolean): TuiSymbols {
