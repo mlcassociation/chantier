@@ -83,7 +83,11 @@ export function createCommandRegistry(): CommandRegistryV6 {
   const commands = new Map<string, RegistrableCommand>();
   return {
     register(spec: RegistrableCommand): void {
-      if (spec.name.length === 0 || spec.name.length > COMMAND_NAME_MAX || !COMMAND_NAME_PATTERN.test(spec.name)) {
+      if (
+        spec.name.length === 0 ||
+        spec.name.length > COMMAND_NAME_MAX ||
+        !COMMAND_NAME_PATTERN.test(spec.name)
+      ) {
         throw new Error(
           `Invalid command name "${spec.name}" (1-${COMMAND_NAME_MAX} chars, [a-z0-9-], no lead/trail/double -).`,
         );

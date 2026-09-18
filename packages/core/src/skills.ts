@@ -37,8 +37,8 @@ export type LoadSkillBody = (skill: Skill) => Promise<string>;
 
 // --- Implementation -----------------------------------------------------------
 
-import { readFile, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 /** agentskills.io name rules: 1–64 chars, [a-z0-9-], no lead/trail/consecutive `-`. */
@@ -127,14 +127,17 @@ async function readSkill(
   const name = doc.fields.name;
   if (name === undefined || name.length === 0) return { reason: "missing name" };
   if (name.length > NAME_MAX || !NAME_PATTERN.test(name)) {
-    return { reason: `invalid name "${name}" (1-${NAME_MAX} chars, [a-z0-9-], no lead/trail/double -)` };
+    return {
+      reason: `invalid name "${name}" (1-${NAME_MAX} chars, [a-z0-9-], no lead/trail/double -)`,
+    };
   }
-  const description = doc.fields["description"];
-  if (description === undefined || description.length === 0) return { reason: "missing description" };
+  const description = doc.fields.description;
+  if (description === undefined || description.length === 0)
+    return { reason: "missing description" };
   if (description.length > DESCRIPTION_MAX) {
     return { reason: `description exceeds ${DESCRIPTION_MAX} chars (${description.length})` };
   }
-  const compatibility = doc.fields["compatibility"];
+  const compatibility = doc.fields.compatibility;
   if (compatibility !== undefined && compatibility.length > COMPATIBILITY_MAX) {
     return { reason: `compatibility exceeds ${COMPATIBILITY_MAX} chars (${compatibility.length})` };
   }
@@ -146,7 +149,7 @@ async function readSkill(
   const frontmatter: SkillFrontmatter = {
     name,
     description,
-    ...(doc.fields["license"] === undefined ? {} : { license: doc.fields["license"] }),
+    ...(doc.fields.license === undefined ? {} : { license: doc.fields.license }),
     ...(compatibility === undefined ? {} : { compatibility }),
     ...(Object.keys(doc.metadata).length === 0 ? {} : { metadata: doc.metadata }),
   };
@@ -212,7 +215,8 @@ function splitKeyValue(line: string): [key: string, value: string] | undefined {
   let value = line.slice(colon + 1).trim();
   if (
     value.length >= 2 &&
-    ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
   ) {
     value = value.slice(1, -1);
   }

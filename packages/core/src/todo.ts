@@ -32,7 +32,9 @@ const STATUSES = ["pending", "in_progress", "completed"] as const;
  * exactly-one-in_progress invariant (extras normalize to pending, first
  * keeps the slot). readOnly: the checklist mutates nothing on disk.
  */
-export function createTodoTool(deps: { onTodo: (steps: readonly TodoStep[]) => void }): ToolDefinition {
+export function createTodoTool(deps: {
+  onTodo: (steps: readonly TodoStep[]) => void;
+}): ToolDefinition {
   return {
     name: "todo",
     description:
@@ -60,7 +62,7 @@ export function createTodoTool(deps: { onTodo: (steps: readonly TodoStep[]) => v
     },
     readOnly: true,
     handler: async (input) => {
-      const raw = input["items"];
+      const raw = input.items;
       if (!Array.isArray(raw)) {
         return "Error: todo requires an `items` array of {content, status} rows.";
       }
