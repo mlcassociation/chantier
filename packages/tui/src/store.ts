@@ -37,6 +37,12 @@ export interface TuiState {
 
 export type TuiStore = {
   readonly state: TuiState;
+  // TuiStoreV5 contract fields (spec §1): store-level reads for the loop.
+  get items(): readonly TuiItem[];
+  get running(): RunningState | null;
+  get queued(): readonly string[];
+  get usage(): UsageTotals | undefined;
+  get statusFlash(): string;
   /** React-side subscription; returns an unsubscribe function. */
   subscribe(listener: () => void): () => void;
   /** Appends one finalized transcript item (rendered once, never re-rendered). */
