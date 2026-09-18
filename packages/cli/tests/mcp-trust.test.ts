@@ -95,3 +95,32 @@ describe("project MCP trust gate verdicts", () => {
     expect(raw).toBe("");
   });
 });
+
+describe("per-project trust isolation", () => {
+  it("a trust marker for one cwd grants nothing to another project", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "mcp-iso-home-"));
+    const trusted = await mkdtemp(path.join(tmpdir(), "mcp-iso-trusted-"));
+    const stranger = await mkdtemp(path.join(tmpdir(), "mcp-iso-stranger-"));
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    cleanup.push(async () => {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    });
+    const { isProjectMcpTrusted, promptProjectMcpTrust, mcpTrustFile } = await import(
+      "../src/mcp-trust.ts"
+    );
+    const stream = new PassThrough();
+    stream.write("a\n");
+    expect(await promptProjectMcpTrust(trusted, ["proj"], { proj: { command: "s" } }, stream)).toBe(
+      "allow",
+    );
+    expect(await isProjectMcpTrusted(trusted)).toBe(true);
+    // THE invariant: the persisted hash binds to the trusted project only.
+    expect(await isProjectMcpTrusted(stranger)).toBe(false);
+    // And the file on disk contains no raw directory names.
+    const raw = await readFile(mcpTrustFile(), "utf8");
+    expect(raw).not.toContain(trusted);
+    expect(raw).not.toContain(stranger);
+  });
+});
