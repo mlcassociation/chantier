@@ -227,3 +227,31 @@ describe("loadSkillBody", () => {
     ).toBe("");
   });
 });
+
+it("parses YAML block scalars — folded and literal (real-world SKILL.md shape)", async () => {
+  const root = await makeRoot();
+  await writeSkill(
+    root,
+    "folded",
+    [
+      "name: folded",
+      "description: >",
+      "  Mandatory entry point: read this",
+      "  first for any request.",
+      "metadata:",
+      "  key: value",
+      "",
+    ].join("\n"),
+  );
+  await writeSkill(
+    root,
+    "literal",
+    ["name: literal", "description: |", "  Line one", "  Line two", ""].join("\n"),
+  );
+  const skills = await loadSkills([root]);
+  expect(skills.map((s) => s.name)).toEqual(["folded", "literal"]);
+  const folded = skills[0];
+  const literal = skills[1];
+  expect(folded?.description).toBe("Mandatory entry point: read this first for any request.");
+  expect(literal?.description).toBe("Line one\nLine two");
+});

@@ -179,24 +179,71 @@ function parseFrontmatter(text: string): FrontmatterDoc | undefined {
   const metadata: Record<string, string> = {};
   let inMetadata = false;
   let bodyStart = -1;
+  // Accumulator for the field/metadata entry being built, which may span
+  // lines: YAML block scalars (`>` folded, `|` literal) and plain values.
+  let current:
+    | {
+        map: Record<string, string>;
+        key: string;
+        mode: "fold" | "keep" | undefined;
+        value: string;
+      }
+    | undefined;
+  const flush = (): void => {
+    if (current === undefined) return;
+    const folded =
+      current.mode === undefined
+        ? current.value
+        : current.mode === "fold"
+          ? current.value
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0)
+              .join(" ")
+          : current.value.replace(/^\n+/, "");
+    current.map[current.key] = folded.trim();
+    current = undefined;
+  };
   for (let i = 1; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
     if (line.trimEnd() === "---") {
+      flush();
       bodyStart = i + 1;
       break;
     }
-    if (line.trim().length === 0) continue;
-    if (/^\s/.test(line)) {
-      if (!inMetadata) return undefined; // unsupported deeper nesting
-      const entry = splitKeyValue(line.trim());
-      if (entry === undefined) return undefined;
-      metadata[entry[0]] = entry[1];
+    if (line.trim().length === 0) {
+      if (current !== undefined && current.mode !== undefined) current.value += "\n";
       continue;
     }
+    if (/^\s/.test(line)) {
+      if (current !== undefined && current.mode !== undefined) {
+        current.value += `\n${line.trim()}`;
+        continue;
+      }
+      if (inMetadata) {
+        const entry = splitKeyValue(line.trim());
+        if (entry === undefined) return undefined;
+        metadata[entry[0]] = entry[1];
+        continue;
+      }
+      return undefined; // indentation with no open scalar
+    }
+    flush();
     const pair = splitKeyValue(line);
     if (pair === undefined) return undefined;
-    fields[pair[0]] = pair[1];
-    inMetadata = pair[0] === "metadata" && pair[1].length === 0;
+    const indicator = /^[|>][+-]?\d*$/.exec(pair[1]);
+    if (indicator === null) {
+      inMetadata = pair[0] === "metadata" && pair[1].length === 0;
+      if (!inMetadata) fields[pair[0]] = pair[1];
+      continue;
+    }
+    inMetadata = false;
+    current = {
+      map: fields,
+      key: pair[0],
+      mode: indicator[0].startsWith("|") ? "keep" : "fold",
+      value: "",
+    };
   }
   if (bodyStart === -1) return undefined; // no closing delimiter
   return { fields, metadata, body: lines.slice(bodyStart).join("\n") };
