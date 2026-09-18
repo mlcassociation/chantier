@@ -1,18 +1,25 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import path from "node:path";
 import process from "node:process";
 import {
   buildSystemPrompt,
   createSessionStore,
+  createTodoTool,
   loadNewestSessionId,
+  loadSkills,
   type Message,
   type ModelAdapter,
   resolveModelProfile,
   resumeSessionStore,
   runAgent,
   type SessionStore,
+  type Skill,
   sessionView,
+  type TodoStep,
 } from "@chantier/core";
+import { connectServers, loadMcpConfig } from "@chantier/mcp";
 import {
   createAllowAllSink,
   createDenyAllSink,
@@ -53,6 +60,7 @@ Options:
       --max-turns <n>    Cap agent turns (default 50)
       --verbose          Print tool calls and results to stderr
       --screen-reader   Screen-reader mode: flat labeled output, aria hints (alias: CHANTIER_SCREEN_READER=1)
+      --trust-skills    Headless (-p): load project skills without the approval gate
       --no-color        Disable color output (alias: NO_COLOR)
       --version          Print the version
   -h, --help             Show this help
@@ -63,8 +71,10 @@ Auth:     chantier auth login [provider]   store an API key in ~/.chantier/auth.
           login flags: --provider <p>, --api-key-file <path> ("-" reads stdin)
           key order: config.json apiKey → auth.json → ANTHROPIC_API_KEY / OPENAI_API_KEY
 
-Config:   ~/.chantier/config.json   (see examples/config.json)
-Settings: ~/.chantier/settings.json ← .chantier/settings.json (allow/ask/deny rules)`;
+Config:   ~/.chantier/config.json   (see examples/config.json; mcpServers accepted)
+Settings: ~/.chantier/settings.json ← .chantier/settings.json (allow/ask/deny rules)
+Skills:   .chantier/skills + .agents/skills (project, gated) ← ~/.chantier/skills,
+          ~/.agents/skills, ~/.claude/skills (user); .mcp.json for MCP servers`;
 
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
@@ -138,14 +148,51 @@ async function main(): Promise<number> {
   const sink = values.yolo === true ? createAllowAllSink() : createDenyAllSink();
   // Phase A depth cap: the task tool's children get the builtin set, which
   // contains no task tool, so recursion is impossible by construction.
-  // contextWindow wiring for children is post-merge integration work.
+  const cwd = process.cwd();
   const builtinTools = buildTools();
+  // v0.6 todo trail: the tool forwards accepted checklists through this
+  // bridge; the interactive loop binds it to the TUI store.
+  const todoBridge: { onTodo?: (steps: readonly TodoStep[]) => void } = {};
+  const todoTool = createTodoTool({ onTodo: (steps) => todoBridge.onTodo?.(steps) });
+
+  // MCP servers: connect before the first request; one dead server is a
+  // stderr notice, never a failed launch. Children stay builtins-only.
+  const mcpConfig = await loadMcpConfig({ cwd });
+  const mcp = await connectServers(mcpConfig.servers, { cwd });
+  for (const notice of [...mcpConfig.notices, ...mcp.notices]) {
+    process.stderr.write(`mcp: ${notice}\n`);
+  }
+  const mcpTools = mcp.connections.flatMap((conn) => conn.tools);
+
   const tools = [
     ...builtinTools,
+    todoTool,
+    ...mcpTools,
     createTaskTool({ adapter, rules: settings, sink, provider, model, tools: builtinTools }),
   ];
 
-  const cwd = process.cwd();
+  // Skills: user dirs always load; project dirs load headless-only with
+  // --trust-skills (the interactive gate runs inside the TUI, runInteractive).
+  const skillNotice = (line: string): void => {
+    process.stderr.write(`skills: ${line}\n`);
+  };
+  const userSkillRoots = [
+    path.join(homedir(), ".chantier", "skills"),
+    path.join(homedir(), ".agents", "skills"),
+    path.join(homedir(), ".claude", "skills"),
+  ];
+  const userSkills = await loadSkills(userSkillRoots, { onNotice: skillNotice });
+  let projectSkills: readonly Skill[] = [];
+  if (!interactive) {
+    if (values["trust-skills"] === true) {
+      projectSkills = await loadSkills(
+        [path.join(cwd, ".chantier", "skills"), path.join(cwd, ".agents", "skills")],
+        { onNotice: skillNotice },
+      );
+    }
+  }
+  const allSkills = [...projectSkills, ...userSkills];
+
   let session: SessionStore;
   let messages: Message[] = [];
   if (values.continue === true) {
@@ -162,7 +209,7 @@ async function main(): Promise<number> {
   } else {
     session = await createSessionStore({ cwd, provider, model });
   }
-  const system = await buildSystemPrompt(cwd, tools, resolveModelProfile(model));
+  const system = await buildSystemPrompt(cwd, tools, resolveModelProfile(model), allSkills);
   const maxTurnsArg = values["max-turns"];
   if (maxTurnsArg !== undefined && (!/^\d+$/.test(maxTurnsArg) || Number(maxTurnsArg) <= 0)) {
     process.stderr.write(`Error: --max-turns must be a positive integer, got "${maxTurnsArg}".\n`);
@@ -184,6 +231,14 @@ async function main(): Promise<number> {
       contextWindow,
       model,
       screenReader: values["screen-reader"],
+      // v0.6: skills registry + project trust gate + todo-trail bridge.
+      skills: userSkills,
+      projectSkillRoots: [
+        path.join(cwd, ".chantier", "skills"),
+        path.join(cwd, ".agents", "skills"),
+      ],
+      todoBridge,
+      notice: skillNotice,
     });
   }
 

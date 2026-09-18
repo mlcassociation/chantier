@@ -1,16 +1,25 @@
 import {
   type AgentEvent,
+  buildSystemPrompt,
+  type CommandIo,
+  type CommandRegistryV6,
   type CompactionOutcome,
   compactSession,
+  createCommandRegistry,
   DEFAULT_COMPACTION_KEEP_RECENT,
   DEFAULT_COMPACTION_RESERVE,
   estimateMessageTokens,
+  loadSkillBody,
+  loadSkills,
   type Message,
   type ModelAdapter,
+  resolveModelProfile,
   runAgent,
   type SessionStore,
+  type Skill,
   sessionView,
   shouldCompact,
+  type TodoStep,
   type ToolDefinition,
 } from "@chantier/core";
 import type { ApprovalRequest, ApprovalSink, RememberingEngine } from "@chantier/permissions";
@@ -44,6 +53,17 @@ export interface InteractiveDeps {
   screenReader?: boolean;
   /** Model id for the footer badge (§5); undefined renders the neutral label. */
   model?: string;
+  /** User-dir skills (always loaded); registered as expand commands. */
+  skills?: readonly Skill[];
+  /** Project skill roots; non-empty triggers the interactive trust gate. */
+  projectSkillRoots?: readonly string[];
+  /**
+   * v0.6 todo trail: the loop binds the todo tool's onTodo here. The bridge
+   * exists because the toolset is built before the TUI store exists.
+   */
+  todoBridge?: { onTodo?: (steps: readonly TodoStep[]) => void };
+  /** Diagnostic one-liner channel (stderr in the CLI); default silent. */
+  notice?: (line: string) => void;
 }
 
 function summarizeResult(
@@ -89,13 +109,28 @@ export function subagentInfo(content: string): { sessionId: string; summary: str
   return { sessionId, summary: summary.length > 0 ? summary : content.trim() };
 }
 
+/**
+ * Final-flush text contract for the transcript's todo item: the TUI worker
+ * refines rendering from this exact shape.
+ */
+function todoFlushText(steps: readonly TodoStep[]): string {
+  const done = steps.filter((step) => step.status === "completed").length;
+  const active = steps.filter((step) => step.status === "in_progress").length;
+  return `todo: ${done} completed, ${active} in progress, ${steps.length - done - active} pending`;
+}
+
+/** /help body: the registry in registration order (built-ins first). */
+function helpText(registry: CommandRegistryV6): string {
+  return [
+    "Commands:",
+    ...registry.list().map((spec) => `/${spec.name} — ${spec.description}`),
+  ].join("\n");
+}
+
 /** Transcript notice for a compaction; ASCII `->` keeps SR/ASCII mode glyph-free. */
 export function compactionNotice(tokensBefore: number, tokensAfter: number): string {
   return `context compacted: ~${tokensBefore} -> ~${tokensAfter} tokens`;
 }
-
-/** Exact manual compaction command accepted at the task prompt. */
-const COMPACT_COMMAND = "/compact";
 
 /**
  * Headless stderr notice, printed only under --verbose. Injectable writer
@@ -346,6 +381,94 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     },
   });
 
+  // --- v0.6: command registry + skills ----------------------------------------
+  // Built-ins register first (stable /help order). /compact keeps its exact
+  // semantics: the registry dispatches only the bare form — `/compact extra`
+  // is not-command and reaches the agent verbatim (the with-args rule).
+  const registry = createCommandRegistry();
+  registry.register({
+    name: "compact",
+    description: "compact the conversation to free context window",
+    kind: "action",
+    run: (io) => compactTaskContext(store, deps, { manual: true, signal: io.signal }),
+  });
+  registry.register({
+    name: "help",
+    description: "list slash commands and skills",
+    kind: "action",
+    run: (io) => {
+      io.pushItem({ kind: "info", text: helpText(registry) });
+    },
+  });
+  // User-dir skills register unconditionally; project skills ride the trust
+  // gate below (first session in a project that ships skills approves once;
+  // headless -p loads them only with --trust-skills, decided in index.ts).
+  const registerSkills = (skills: readonly Skill[]): void => {
+    for (const skill of skills) {
+      try {
+        registry.register({
+          name: skill.name,
+          description: skill.description,
+          kind: "expand",
+          expand: async (args) => {
+            // agentskills guide "harness-intercepted injection": the body
+            // lands inside skill_content tags; ARGUMENTS is appended only
+            // when the user typed any.
+            const body = await loadSkillBody(skill);
+            const payload = `<skill_content name="${skill.name}">\n${body}\n</skill_content>`;
+            return args.length > 0 ? `${payload}\n\nARGUMENTS: ${args}` : payload;
+          },
+        });
+      } catch (error) {
+        deps.notice?.(`skill "${skill.name}" not registered: ${(error as Error).message}`);
+      }
+    }
+  };
+  registerSkills(deps.skills ?? []);
+  if (deps.projectSkillRoots !== undefined && deps.projectSkillRoots.length > 0) {
+    const discovered = await loadSkills(deps.projectSkillRoots, { onNotice: deps.notice });
+    if (discovered.length > 0) {
+      const verdict = deps.permission.evaluate("project-skills");
+      let approved = verdict === "allow";
+      if (verdict === "ask") {
+        const decision = await sink.ask({
+          tool: "project-skills",
+          input: { names: discovered.map((skill) => skill.name) },
+          reason: `this project ships ${discovered.length} skills — load them?`,
+        });
+        approved = decision.approved;
+      }
+      if (approved) {
+        registerSkills(discovered);
+        // The tier-1 catalog was built before the gate ran; rebuild so the
+        // approved project skills appear in it (user skills stay first-listed
+        // via the catalog's own order: project, then user).
+        deps.system = await buildSystemPrompt(
+          deps.cwd,
+          deps.tools,
+          resolveModelProfile(deps.model ?? ""),
+          [...discovered, ...(deps.skills ?? [])],
+        );
+      } else {
+        deps.notice?.("project skills not loaded (declined)");
+      }
+    }
+  }
+  // v0.6 todo trail: accepted checklists flow through the bridge; the live
+  // store trail uses the TUI worker's setTodos (resolves at integration —
+  // the v0.5 store in this tree has no todo fields and the optional call
+  // skips) and the final state flushes as one transcript item on settle.
+  let lastTodos: readonly TodoStep[] = [];
+  const todoStore = store as TuiStore & {
+    setTodos?: (next: readonly TodoStep[]) => void;
+  };
+  if (deps.todoBridge !== undefined) {
+    deps.todoBridge.onTodo = (steps) => {
+      lastTodos = steps;
+      todoStore.setTodos?.(steps);
+    };
+  }
+
   /**
    * §6d drain: queued texts join with blank lines into the next composite
    * task, in push order. Called the moment a run settles — including right
@@ -370,14 +493,27 @@ export async function runInteractive(deps: InteractiveDeps): Promise<number> {
     }
     abortKind = "escape" as AbortKind;
     currentController = new AbortController();
-    if (task.trim() === COMPACT_COMMAND) {
-      await compactTaskContext(store, deps, { manual: true, signal: currentController.signal });
-      continue;
-    }
+    const io: CommandIo = {
+      signal: currentController.signal,
+      pushItem: (item) => store.pushItem(item),
+    };
+    const dispatched = await registry.dispatch(task, io);
+    if (dispatched.kind === "handled") continue;
+    // BUG-6 echo: the submitted prompt lands as a labeled `you:` transcript
+    // line before the run starts; drained queue composites echo here too.
+    store.pushItem({ kind: "prompt", text: task });
     store.setRunning({ sinceMs: Date.now() });
-    const outcome = await driveAgent(store, deps, sink, task, currentController.signal);
+    const runTask = dispatched.kind === "expanded" ? dispatched.task : task;
+    const outcome = await driveAgent(store, deps, sink, runTask, currentController.signal);
     store.setRunning(null);
     store.flushStream();
+    // v0.6 todo trail: the settled run's final checklist flushes once as a
+    // transcript item, then the live trail clears (resolves at integration).
+    if (lastTodos.length > 0) {
+      store.pushItem({ kind: "todo", text: todoFlushText(lastTodos) });
+      lastTodos = [];
+      todoStore.setTodos?.([]);
+    }
     // Rebuild the conversation from the session: runAgent appends assistant and
     // tool-result messages to the session but never to deps.messages, and a
     // task-N request missing its tool_use pairing would 400 on strict APIs.

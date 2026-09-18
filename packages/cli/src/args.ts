@@ -11,6 +11,8 @@ export interface CliArgValues {
   help?: boolean;
   "screen-reader"?: boolean;
   "no-color"?: boolean;
+  /** Headless gate: load project skills without the interactive approval. */
+  "trust-skills"?: boolean;
 }
 
 export type AuthCommandName = "login" | "status" | "logout";
@@ -84,6 +86,7 @@ const OPTIONS = {
   version: { type: "boolean" },
   help: { type: "boolean", short: "h" },
   "screen-reader": { type: "boolean" },
+  "trust-skills": { type: "boolean" },
   "no-color": { type: "boolean" },
 } as const;
 
