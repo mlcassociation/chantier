@@ -31,17 +31,55 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: npm publish --provenance --access public
+      # Idempotent publishes: a re-run skips versions already on the registry
+      # (a strict re-run would die at the first published package and never
+      # reach the rest).
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/permissions
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/core
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/mcp
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/providers
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/tools
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/tui
-      - run: npm publish --provenance --access public
+      - run: |
+          if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+            echo "already published: $npm_package_name@$npm_package_version"
+          else
+            npm publish --provenance --access public
+          fi
         working-directory: packages/cli
