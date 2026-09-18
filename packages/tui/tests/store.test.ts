@@ -267,3 +267,34 @@ describe("status flash", () => {
     }
   });
 });
+
+describe("todos (v0.6 TuiStoreV6)", () => {
+  it("is empty until set and whole-list replaces", () => {
+    const store = createTuiStore({ onAbort: () => {} });
+    expect(store.state.todos).toEqual([]);
+    expect(store.todos).toEqual([]);
+    store.setTodos([
+      { content: "map the seams", status: "completed" },
+      { content: "render the echo", status: "in_progress" },
+    ]);
+    expect(store.todos).toEqual([
+      { content: "map the seams", status: "completed" },
+      { content: "render the echo", status: "in_progress" },
+    ]);
+    // Whole-list replace: the next call drops rows the previous list had.
+    store.setTodos([{ content: "render the echo", status: "completed" }]);
+    expect(store.todos).toEqual([{ content: "render the echo", status: "completed" }]);
+  });
+
+  it("notifies subscribers exactly once per setTodos", () => {
+    const store = createTuiStore({ onAbort: () => {} });
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+    store.setTodos([{ content: "step", status: "pending" }]);
+    expect(notifications).toBe(1);
+    store.setTodos([]);
+    expect(notifications).toBe(2);
+  });
+});

@@ -2,7 +2,7 @@ import type { ApprovalRequest } from "@chantier/permissions";
 import { Box, Text, useAnimation } from "ink";
 import { createElement, type ReactNode } from "react";
 import { classifyUnifiedDiffLine, summarizeUnifiedDiff } from "./diff.ts";
-import type { RunningState, TuiItem, UsageTotals } from "./items.ts";
+import type { RunningState, TodoStep, TuiItem, UsageTotals } from "./items.ts";
 import { APPROVAL_HINT_PARTS } from "./keys.ts";
 import type { TuiSymbols } from "./symbols.ts";
 
@@ -84,10 +84,60 @@ export interface ToolRowProps {
   readonly screenReader?: boolean;
 }
 
+/** Path-ish keys checked in order when shortening a JSON args blob. */
+const ARGS_KEYS = [
+  "path",
+  "file_path",
+  "file",
+  "command",
+  "pattern",
+  "query",
+  "prompt",
+  "url",
+] as const;
+
+/** Fallback cap for args that survive humanizing (v0.6 humanized ToolRow). */
+export const ARGS_SUMMARY_CAP = 60;
+
+function capSummary(text: string, ellipsis: string): string {
+  return text.length > ARGS_SUMMARY_CAP ? `${text.slice(0, ARGS_SUMMARY_CAP)}${ellipsis}` : text;
+}
+
+/**
+ * Humanized argsSummary (v0.6): the loop sends JSON-stringified args, so a
+ * single string arg renders as the string, a path-like first value as the
+ * path; anything else falls back to the first ARGS_SUMMARY_CAP chars of the
+ * JSON. Non-JSON summaries pass through unchanged (already human).
+ */
+export function humanizeArgsSummary(argsSummary: string, ellipsis: string): string {
+  const trimmed = argsSummary.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return argsSummary;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return capSummary(trimmed, ellipsis);
+  }
+  if (typeof parsed === "string") return parsed;
+  if (parsed !== null && typeof parsed === "object") {
+    const record = parsed as Record<string, unknown>;
+    const values = Object.values(record);
+    if (values.length === 1 && typeof values[0] === "string") return values[0];
+    for (const key of ARGS_KEYS) {
+      const value = record[key];
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+    const first = values.find((value) => typeof value === "string");
+    if (typeof first === "string") return first;
+  }
+  return capSummary(trimmed, ellipsis);
+}
+
 /**
  * Collapse ladder: task/read/edit render two lines (args + detail preview);
  * everything else renders one line. Errors turn the glyph red (§2c). The
- * full output stays in the transcript log; expand/collapse is v0.6.
+ * argsSummary humanizes to its short form (v0.6); the full output stays in
+ * the transcript log.
  */
 export function toolRowLines(item: ToolItem, symbols: TuiSymbols): Array<RowSpec> {
   const duration = formatDuration(item.durationMs);
@@ -95,7 +145,7 @@ export function toolRowLines(item: ToolItem, symbols: TuiSymbols): Array<RowSpec
   const failed = item.outcome === "error";
   const glyph = failed ? symbols.errorGlyph : symbols.runGlyph;
   const head: RowSpec = {
-    text: `${glyph} ${item.toolName}(${item.argsSummary})${durationTail}`,
+    text: `${glyph} ${item.toolName}(${humanizeArgsSummary(item.argsSummary, symbols.ellipsis)})${durationTail}`,
     ...(failed ? { color: "red" } : {}),
   };
   const detail = item.detail ?? "";
@@ -104,12 +154,12 @@ export function toolRowLines(item: ToolItem, symbols: TuiSymbols): Array<RowSpec
 }
 
 /** SR parity (§8): `tool: read(src/config.ts) done`. */
-export function toolRowSrText(item: ToolItem): string {
-  return `tool: ${item.toolName}(${item.argsSummary}) ${item.outcome}`;
+export function toolRowSrText(item: ToolItem, symbols: TuiSymbols): string {
+  return `tool: ${item.toolName}(${humanizeArgsSummary(item.argsSummary, symbols.ellipsis)}) ${item.outcome}`;
 }
 
 export function ToolRow({ item, symbols, screenReader = false }: ToolRowProps): ReactNode {
-  if (screenReader) return createElement(Text, { key: "sr" }, toolRowSrText(item));
+  if (screenReader) return createElement(Text, { key: "sr" }, toolRowSrText(item, symbols));
   // A task result carrying a child session renders as the subagent card
   // instead of the plain ladder row (§4b).
   const child = item.subagent;
@@ -161,6 +211,10 @@ export interface StatusWidgetProps {
   readonly running: RunningState | null;
   /** Persistent status text (e.g. "thinking…"); "" = none. */
   readonly status: string;
+  /** Transcript items feeding the finished-step trail (v0.6 ribbon). */
+  readonly items?: readonly TuiItem[];
+  /** Queued-task count for the trail's queued line; 0 hides it. */
+  readonly queuedCount?: number;
   readonly symbols: TuiSymbols;
   /** Injectable clock source; defaults to Date.now (tests pass a stub). */
   readonly now?: () => number;
@@ -228,16 +282,75 @@ export function statusLines(
 export function StatusWidget({
   running,
   status,
+  items = [],
+  queuedCount = 0,
   symbols,
   now = Date.now,
   screenReader = false,
 }: StatusWidgetProps): ReactNode {
   // useAnimation must run unconditionally (rules of hooks); the shared timer
   // is simply unused when the row is hidden.
-  const { frame } = useAnimation({ interval: 120 });
+  const { frame } = useAnimation({ interval: RIBBON_INTERVAL_MS });
   // Parity §8: SR mode hides the spinner row; the result line carries stats.
   if (running === null || screenReader) return null;
-  return renderRows(statusLines(frame, running, status, symbols, now() - running.sinceMs));
+  return renderRows(
+    ribbonLines(
+      frame,
+      running,
+      status,
+      items ?? [],
+      queuedCount ?? 0,
+      symbols,
+      now() - running.sinceMs,
+    ),
+  );
+}
+
+// --- Ribbon trail (v0.6, spec §Theme 4) ------------------------------------------
+
+/** Live-region tick budget: ≤4 Hz (was 120ms in v0.5). */
+export const RIBBON_INTERVAL_MS = 250;
+
+/** Finished tool rows shown as trail chips. */
+export const RIBBON_TRAIL_ROWS = 2;
+
+/**
+ * The last finished tool steps as dim chips: `└ name 1s ✓`. Only completed
+ * rows with a measured duration qualify; errors stay in the transcript
+ * (they render there with the red glyph).
+ */
+export function statusTrailLines(items: readonly TuiItem[], symbols: TuiSymbols): Array<RowSpec> {
+  const chips = items
+    .filter(
+      (item): item is ToolItem =>
+        item.kind === "tool" && item.outcome === "done" && item.durationMs !== undefined,
+    )
+    .slice(-RIBBON_TRAIL_ROWS);
+  return chips.map((chip) => ({
+    text: `${symbols.subGlyph} ${chip.toolName} ${formatDuration(chip.durationMs)} ${symbols.todoDone}`,
+    dim: true,
+  }));
+}
+
+/**
+ * The full ribbon: head + delegation detail + finished chips + queued count.
+ * Live-region updates stay within the ≤4 Hz budget through RIBBON_INTERVAL_MS.
+ */
+export function ribbonLines(
+  frame: number,
+  running: RunningState,
+  status: string,
+  items: readonly TuiItem[],
+  queuedCount: number,
+  symbols: TuiSymbols,
+  elapsedMs: number,
+): Array<RowSpec> {
+  const rows = [
+    ...statusLines(frame, running, status, symbols, elapsedMs),
+    ...statusTrailLines(items, symbols),
+  ];
+  if (queuedCount > 0) rows.push({ text: `${symbols.subGlyph} ${queuedCount} queued`, dim: true });
+  return rows;
 }
 
 // --- FooterBar (§5 budgeted segments) ------------------------------------------
@@ -375,6 +488,109 @@ export function QueuePreview({ queued, symbols }: QueuePreviewProps): ReactNode 
       ),
     ),
   );
+}
+
+// --- Todo checklist (v0.6, spec §Theme 4) ----------------------------------------
+
+/** One checklist row in the live trail or the transcript flush. */
+export function todoRow(step: TodoStep, symbols: TuiSymbols): RowSpec {
+  if (step.status === "in_progress") {
+    return { text: `${symbols.todoActive} ${step.content}`, color: "cyan" };
+  }
+  if (step.status === "completed")
+    return { text: `${symbols.todoDone} ${step.content}`, dim: true };
+  return { text: `${symbols.todoPending} ${step.content}`, dim: true };
+}
+
+/** Live-trail collapse: more than this many items folds into `first N + "+rest"`. */
+export const TODO_LIVE_MAX_ROWS = 4;
+
+/**
+ * The live todo trail rows: `✓ done` dim, `● active` accent, `▢ pending` dim;
+ * more than 5 items collapse to the first TODO_LIVE_MAX_ROWS plus a `+N` tail.
+ */
+export function todoTrailLines(todos: readonly TodoStep[], symbols: TuiSymbols): Array<RowSpec> {
+  const shown = todos.length > TODO_LIVE_MAX_ROWS + 1 ? todos.slice(0, TODO_LIVE_MAX_ROWS) : todos;
+  const rows = shown.map((step) => todoRow(step, symbols));
+  const rest = todos.length - shown.length;
+  if (rest > 0) rows.push({ text: `+${rest}`, dim: true });
+  return rows;
+}
+
+export interface TodoTrailProps {
+  readonly todos: readonly TodoStep[];
+  readonly symbols: TuiSymbols;
+}
+
+/** Live todo checklist under the ribbon; hidden with no checklist in flight. */
+export function TodoTrail({ todos, symbols }: TodoTrailProps): ReactNode {
+  if (todos.length === 0) return null;
+  return renderRows(todoTrailLines(todos, symbols));
+}
+
+/**
+ * Serialized checklist for the final transcript flush: one GFM-style task
+ * row per step (`[x]` done, `[~]` active, `[ ]` pending). The CLI loop
+ * passes this as the `todo` item's text; todoItemLines parses it back.
+ */
+export function todoItemText(steps: readonly TodoStep[]): string {
+  return steps
+    .map((step) => {
+      const box =
+        step.status === "completed" ? "[x]" : step.status === "in_progress" ? "[~]" : "[ ]";
+      return `${box} ${step.content}`;
+    })
+    .join("\n");
+}
+
+/** Status marker inside a serialized todo row. */
+const TODO_MARKER = /^\[(.)\]\s*(.*)$/;
+
+/** Parses the flushed todo item into checklist rows; stray lines render plain. */
+export function todoItemLines(text: string, symbols: TuiSymbols): Array<RowSpec> {
+  return text
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const match = TODO_MARKER.exec(line);
+      if (match === null) return { text: line };
+      const [, mark, content] = match;
+      if (mark === "x") return { text: `${symbols.todoDone} ${content}`, dim: true };
+      if (mark === "~") return { text: `${symbols.todoActive} ${content}`, color: "cyan" };
+      return { text: `${symbols.todoPending} ${content}`, dim: true };
+    });
+}
+
+/** SR parity (§8): the flushed checklist as labeled flat lines. */
+export function todoItemSrLines(text: string): Array<string> {
+  return text
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const match = TODO_MARKER.exec(line);
+      if (match === null) return line;
+      const [, mark, content] = match;
+      const status = mark === "x" ? "done" : mark === "~" ? "in progress" : "pending";
+      return `todo: ${content} (${status})`;
+    });
+}
+
+export interface TodoItemProps {
+  readonly text: string;
+  readonly symbols: TuiSymbols;
+  readonly screenReader?: boolean;
+}
+
+/** The final-state todo checklist as a transcript item (flush once). */
+export function TodoItem({ text, symbols, screenReader = false }: TodoItemProps): ReactNode {
+  if (screenReader) {
+    return createElement(
+      Box,
+      { flexDirection: "column" },
+      ...todoItemSrLines(text).map((line, index) => createElement(Text, { key: index }, line)),
+    );
+  }
+  return renderRows(todoItemLines(text, symbols));
 }
 
 // --- ApprovalCardV2 (§7) ---------------------------------------------------------

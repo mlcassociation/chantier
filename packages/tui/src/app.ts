@@ -28,6 +28,7 @@ import {
 } from "./input.ts";
 import type { TuiItem } from "./items.ts";
 import { keypressToDecision } from "./keys.ts";
+import { MarkStatic, tuiVersion } from "./mark.ts";
 import { markdownToElements } from "./markdown.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
 import type { TuiStore } from "./store.ts";
@@ -38,6 +39,8 @@ import {
   FooterBar,
   QueuePreview,
   StatusWidget,
+  TodoItem,
+  TodoTrail,
   ToolRow,
 } from "./widgets.ts";
 
@@ -50,8 +53,10 @@ export interface FooterData {
 export function TuiApp({
   store,
   footer,
+  tips,
 }: {
   store: TuiStore;
+  tips?: boolean;
   footer?: {
     readonly model: string;
     readonly sessionId: string;
@@ -61,7 +66,8 @@ export function TuiApp({
 }) {
   const state = useSyncExternalStore(store.subscribe, () => store.state);
   const screenReader = useIsScreenReaderEnabled();
-  const symbols = resolveSymbols(screenReader || isAsciiEnv(process.env.CHANTIER_ASCII));
+  const ascii = isAsciiEnv(process.env.CHANTIER_ASCII);
+  const symbols = resolveSymbols(screenReader || ascii);
   const { exit } = useApp();
   const { columns, rows } = useWindowSize();
   const [editor, setEditor] = useState<EditorState>(emptyEditor());
@@ -128,11 +134,20 @@ export function TuiApp({
   });
 
   const children: Array<ReactNode> = [
+    createElement(MarkStatic, {
+      columns,
+      symbols,
+      screenReader,
+      version: tuiVersion(),
+      ...(footer?.model === undefined ? {} : { model: footer.model }),
+      ...(footer?.sessionId === undefined ? {} : { sessionId: footer.sessionId }),
+      ...(tips === undefined ? {} : { tips }),
+    }),
     createElement(Static, {
       items: [...state.items],
       // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
       children: (item: unknown, index: number) =>
-        itemNode(item as TuiItem, index, symbols, screenReader),
+        itemNode(item as TuiItem, index, symbols, screenReader, ascii),
     }),
   ];
   if (state.streamText.length > 0) {
@@ -148,10 +163,15 @@ export function TuiApp({
       createElement(StatusWidget, {
         running: state.running,
         status: state.statusFlash.length > 0 ? state.statusFlash : state.status,
+        items: state.items,
+        queuedCount: state.queued.length,
         symbols,
         screenReader,
       }),
     );
+  }
+  if (state.running !== null && state.prompt === null && state.todos.length > 0) {
+    children.push(createElement(TodoTrail, { todos: state.todos, symbols }));
   }
   if (state.prompt !== null) {
     const detail = state.promptDetail;
@@ -216,12 +236,17 @@ export function TuiApp({
   return createElement(Box, { flexDirection: "column" }, ...children);
 }
 
-/** Renders one finalized transcript item (spec §1). */
+/**
+ * Renders one finalized transcript item (spec §1). `ascii` gates the BUG-6
+ * echo's flat "you:" form (same grouping as screen-reader parity); visual
+ * mode renders the accent prompt glyph + plain wrapped text.
+ */
 function itemNode(
   item: TuiItem,
   index: number,
   symbols: TuiSymbols,
   screenReader: boolean,
+  ascii: boolean,
 ): ReactNode {
   switch (item.kind) {
     case "markdown":
@@ -238,6 +263,16 @@ function itemNode(
       return createElement(Text, { key: index }, item.text);
     case "error":
       return createElement(Text, { key: index, color: "red" }, item.text);
+    case "prompt":
+      if (screenReader || ascii) return createElement(Text, { key: index }, `you: ${item.text}`);
+      return createElement(
+        Box,
+        { key: index },
+        createElement(Text, { key: "glyph", dimColor: true, color: "cyan" }, symbols.promptGlyph),
+        createElement(Text, { key: "text" }, ` ${item.text}`),
+      );
+    case "todo":
+      return createElement(TodoItem, { key: index, text: item.text, symbols, screenReader });
   }
 }
 
@@ -265,6 +300,8 @@ export { keypressToDecision } from "./keys.ts";
 export interface TuiOptions {
   /** Opt-in screen-reader rendering (also honored: CHANTIER_SCREEN_READER=1). */
   readonly screenReader?: boolean;
+  /** Rotating startup tip under the Mark; default on. */
+  readonly tips?: boolean;
   /** Footer segments; session id + model come from the CLI, contextWindow gates the ctx segment. */
   readonly footer?: {
     readonly model: string;
@@ -286,6 +323,7 @@ export function startTui(store: TuiStore, options: TuiOptions = {}): TuiInstance
     createElement(TuiApp, {
       store,
       ...(options.footer === undefined ? {} : { footer: options.footer }),
+      ...(options.tips === undefined ? {} : { tips: options.tips }),
     }),
     {
       exitOnCtrlC: false,

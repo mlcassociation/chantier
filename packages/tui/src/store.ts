@@ -1,5 +1,5 @@
 import type { ApprovalDecision, ApprovalRequest } from "@chantier/permissions";
-import type { RunningState, TuiItem, UsageTotals } from "./items.ts";
+import type { RunningState, TodoStep, TuiItem, UsageTotals } from "./items.ts";
 import { takeSafeFlush } from "./markdown.ts";
 
 export type TuiMode = "input" | "running";
@@ -25,12 +25,14 @@ export interface TuiState {
   readonly usage: UsageTotals | undefined;
   /** Transient flash message that falls back to the persistent status after a few seconds. */
   readonly statusFlash: string;
+  /** Text typed at the task prompt (input mode only). */
+  readonly inputText: string;
+  /** Live todo checklist from the todo tool (v0.6); empty = none. */
+  readonly todos: readonly TodoStep[];
   /** Pending approval request; null while the model is streaming. */
   readonly prompt: ApprovalRequest | null;
   /** Optional diff attachment for the pending ask; null when absent. */
   readonly promptDetail: TuiPromptDetail | null;
-  /** Text typed at the task prompt (input mode only). */
-  readonly inputText: string;
   /** True once the owner called finish(); App exits after the final render. */
   readonly finished: boolean;
 }
@@ -39,6 +41,7 @@ export type TuiStore = {
   readonly state: TuiState;
   // TuiStoreV5 contract fields (spec §1): store-level reads for the loop.
   get items(): readonly TuiItem[];
+  get todos(): readonly TodoStep[];
   get running(): RunningState | null;
   get queued(): readonly string[];
   get usage(): UsageTotals | undefined;
@@ -69,7 +72,8 @@ export type TuiStore = {
   dropQueued(): void;
   /** Replaces the footer usage totals; undefined clears them. */
   setUsage(usage: UsageTotals | undefined): void;
-  /** Transient flash message; falls back to the persistent status after ~5s. */
+  /** Whole-list replace of the live todo checklist (todo-tool semantics). */
+  setTodos(steps: readonly TodoStep[]): void;
   flashStatus(text: string): void;
   /** Enters task-input mode; resolves the previous task signal if still open. */
   awaitTask(defaultText?: string): Promise<string | null>;
@@ -109,6 +113,7 @@ export function createTuiStore(
     prompt: null,
     promptDetail: null,
     inputText: "",
+    todos: [],
     finished: false,
   };
   const listeners = new Set<() => void>();
@@ -174,6 +179,9 @@ export function createTuiStore(
     get usage() {
       return state.usage;
     },
+    get todos() {
+      return state.todos;
+    },
     get statusFlash() {
       return state.statusFlash;
     },
@@ -228,6 +236,9 @@ export function createTuiStore(
     },
     setUsage(usage) {
       set({ usage });
+    },
+    setTodos(steps) {
+      set({ todos: [...steps] });
     },
     flashStatus(text) {
       disarmFlashTimer();

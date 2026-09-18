@@ -2,8 +2,18 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Box, Text, useInput, usePaste } from "ink";
-import { createElement, type ReactNode, useRef } from "react";
+import { createElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { matches } from "./keys.ts";
+import {
+  commandRows,
+  fileBasenames,
+  fileRows,
+  matchCommands,
+  matchFiles,
+  Palette,
+  type PaletteCommand,
+  type PaletteRow,
+} from "./palette.ts";
 import type { TuiSymbols } from "./symbols.ts";
 
 /**
@@ -22,7 +32,6 @@ export interface EditorState {
   /** Insertion point, 0..text.length. */
   readonly cursor: number;
 }
-
 export function emptyEditor(): EditorState {
   return { text: "", cursor: 0 };
 }
@@ -38,6 +47,54 @@ export function editorBackspace(state: EditorState): EditorState {
     text: state.text.slice(0, state.cursor - 1) + state.text.slice(state.cursor),
     cursor: state.cursor - 1,
   };
+}
+
+// --- Palette trigger (v0.6, spec §Theme 3) ----------------------------------------
+
+/** Where the live palette attaches: the trigger token and its query slice. */
+export type PaletteTrigger =
+  | { readonly kind: "slash"; readonly tokenStart: 0; readonly queryStart: 1 }
+  | { readonly kind: "file"; readonly tokenStart: number; readonly queryStart: number };
+
+/**
+ * Derives the open palette from the editor alone — the token containing the
+ * cursor. `/` opens the slash palette only while the head of the line up to
+ * the cursor is that token (no whitespace before the cursor), so a mid-text
+ * `/` types literally. `@` opens the file picker when the token starts with
+ * `@` at a word boundary (line start or after whitespace). A `[pasted …`
+ * chip token never matches. The trigger dissolves — closing the palette —
+ * the moment the token no longer qualifies, which is exactly the
+ * "backspace past trigger" and "query whitespace" close rules.
+ */
+export function paletteTrigger(state: EditorState): PaletteTrigger | null {
+  const cursor = Math.min(state.cursor, state.text.length);
+  if (cursor === 0) return null;
+  const head = state.text.slice(0, cursor);
+  const lastBreak = Math.max(head.lastIndexOf(" "), head.lastIndexOf("\t"));
+  const tokenStart = lastBreak + 1;
+  if (tokenStart === 0 && state.text.startsWith("/")) {
+    return { kind: "slash", tokenStart: 0, queryStart: 1 };
+  }
+  if (state.text[tokenStart] === "@" && cursor > tokenStart) {
+    return { kind: "file", tokenStart, queryStart: tokenStart + 1 };
+  }
+  return null;
+}
+
+/**
+ * Replaces the active trigger token `[tokenStart, cursor)` with the
+ * insertion: palette accept/tab swaps `/tok` for `/name ` and `@par` for
+ * `@<rel-path> `.
+ */
+export function editorReplaceToken(
+  state: EditorState,
+  tokenStart: number,
+  insert: string,
+): EditorState {
+  const cursor = Math.min(state.cursor, state.text.length);
+  const start = Math.min(tokenStart, cursor);
+  const text = state.text.slice(0, start) + insert + state.text.slice(cursor);
+  return { text, cursor: start + insert.length };
 }
 
 export type EditorAction =
@@ -233,6 +290,10 @@ export interface TaskInputProps {
   readonly rows?: number;
   /** ↑/↓ recall + esc-saves-draft. */
   readonly history?: HistoryStore;
+  /** Slash commands for the palette (registry.list()); absent/empty = no palette. */
+  readonly commands?: readonly PaletteCommand[];
+  /** Relative file paths for the @ picker (host glob); absent/empty = no palette. */
+  readonly files?: readonly string[];
   /** Ctrl-C: host aborts the store (single-press idle, second stage running). */
   readonly onQuit: () => void;
   /** First ctrl-c while running: host flashes "press ctrl-c again to quit". */
@@ -253,6 +314,8 @@ export function TaskInput({
   locked = false,
   rows,
   history,
+  commands,
+  files,
   onQuit,
   onQuitArm,
   quitWindowMs = QUIT_WINDOW_MS,
@@ -261,6 +324,68 @@ export function TaskInput({
 }: TaskInputProps): ReactNode {
   // Full paste text lives here; the editor only shows chips (§6e).
   const pasteChunks = useRef(new Map<string, string>());
+  // Palette state (v0.6 §Theme 3): openness derives from the editor
+  // (paletteTrigger) so backspace-past-trigger and query edits close/open
+  // it for free; two bits stay explicit — the esc dismissal (esc closes
+  // while the draft keeps its trigger; clearing the trigger re-arms it)
+  // and the selected row index.
+  const [paletteDismissed, setPaletteDismissed] = useState(false);
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const basenameCache = useMemo(() => fileBasenames(files ?? []), [files]);
+
+  // --- Derived palette (v0.6 §Theme 3) ---------------------------------------
+  const cursor = Math.min(editor.cursor, editor.text.length);
+  const trigger = paletteTrigger(editor);
+  const paletteOpen =
+    trigger !== null &&
+    !paletteDismissed &&
+    ((trigger.kind === "slash" ? commands?.length : files?.length) ?? 0) > 0;
+  const query = trigger === null ? "" : editor.text.slice(trigger.queryStart, cursor);
+  const matchedCommands =
+    paletteOpen && trigger?.kind === "slash" ? matchCommands(commands ?? [], query) : [];
+  const matchedFiles =
+    paletteOpen && trigger?.kind === "file" ? matchFiles(files ?? [], basenameCache, query) : [];
+  const paletteRows =
+    trigger?.kind === "slash" ? commandRows(matchedCommands) : fileRows(matchedFiles);
+  const selected = paletteRows.length === 0 ? -1 : Math.min(paletteIndex, paletteRows.length - 1);
+  // Reopen after dismissal the moment the trigger token leaves the draft,
+  // and reset the selection whenever the query moves underneath it. Both
+  // resets are no-ops when the state already matches (React bails out).
+  useEffect(() => {
+    if (trigger === null) setPaletteDismissed(false);
+  });
+  const queryKey = `${trigger?.kind ?? ""}:${query}`;
+  useEffect(() => {
+    setPaletteIndex(0);
+  }, [queryKey]);
+
+  const insertPaletteRow = (row: PaletteRow | undefined): void => {
+    if (row === undefined || trigger === null) return;
+    const insert = trigger.kind === "slash" ? `${row.label} ` : `@${row.label} `;
+    onEditorChange(editorReplaceToken(editor, trigger.tokenStart, insert));
+  };
+
+  const acceptPaletteRow = (): void => {
+    if (trigger === null) return;
+    if (trigger.kind === "slash") {
+      const spec = matchedCommands[selected];
+      if (spec === undefined) return;
+      if (spec.kind === "action") {
+        // Action commands perform work: the accept submits the full command
+        // (the host routes it through the registry at the dispatch seam).
+        onEditorChange(emptyEditor());
+        onSubmit(`/${spec.name}`);
+        return;
+      }
+      onEditorChange(editorReplaceToken(editor, trigger.tokenStart, `/${spec.name} `));
+      return;
+    }
+    const file = matchedFiles[selected];
+    if (file !== undefined) {
+      onEditorChange(editorReplaceToken(editor, trigger.tokenStart, `@${file} `));
+    }
+  };
+
   const quitTimer = useRef<NodeJS.Timeout | undefined>(undefined);
   const quitArmed = useRef(false);
 
@@ -295,6 +420,7 @@ export function TaskInput({
       upArrow: key.upArrow,
       downArrow: key.downArrow,
       return: key.return,
+      tab: key.tab,
       backspace: key.backspace,
       delete: key.delete,
     };
@@ -319,6 +445,42 @@ export function TaskInput({
       return;
     }
     if (matches(event, "app.redraw")) return;
+    // --- Palette (v0.6 §Theme 3) -------------------------------------------
+    // Interception order per spec: AFTER the quit branch (ctrl-c keeps its
+    // two-stage contract), BEFORE the esc-clears-draft branch and the
+    // history/queue arrows. Every other key falls through: the palette
+    // derives from the editor, so printable edits and backspace just move
+    // the query (closing it past the trigger).
+    if (paletteOpen && trigger !== null) {
+      if (key.escape && !running) {
+        // Idle esc closes the palette, before the draft-bank branch below;
+        // while a run streams esc stays the §6d interrupt (app-level).
+        setPaletteDismissed(true);
+        return;
+      }
+      if (matches(event, "app.palette.prev") || matches(event, "app.palette.next")) {
+        if (paletteRows.length > 0) {
+          const delta = key.upArrow ? -1 : 1;
+          setPaletteIndex((prev) => Math.min(Math.max(0, prev + delta), paletteRows.length - 1));
+        }
+        return;
+      }
+      // A lone Enter accepts the selected row; a bundled "/compact\r" write
+      // carries printable bytes and must submit literal text (§Theme 3).
+      // With no rows selected, Enter falls through to the literal submit.
+      const bundled =
+        input !== undefined && [...input].some((char) => char !== "\r" && char !== "\n");
+      if (key.return && !bundled) {
+        if (selected >= 0) {
+          acceptPaletteRow();
+          return;
+        }
+      }
+      if (matches(event, "app.palette.tab")) {
+        insertPaletteRow(paletteRows[0]);
+        return;
+      }
+    }
     if (key.escape) {
       // §6b: input idle with text → clear the draft INTO history; empty
       // editor → esc does nothing. While a run streams, esc interrupts
@@ -405,20 +567,27 @@ export function TaskInput({
         { dimColor: true },
         `  ${INPUT_HINT_PARTS.join(` ${symbols.hintSeparator} `)}`,
       ),
+      ...(paletteOpen
+        ? [createElement(Palette, { rows: paletteRows, selected, symbols, screenReader: true })]
+        : []),
     );
   }
-  const cursor = Math.min(editor.cursor, editor.text.length);
   return createElement(
     Box,
-    { borderStyle: symbols.border, borderColor: "green", paddingX: 1 },
-    createElement(Text, { color: "green" }, "> "),
-    createElement(Text, null, editor.text.slice(0, cursor)),
-    createElement(Text, { inverse: true }, editor.text.slice(cursor, cursor + 1) || " "),
-    createElement(Text, null, editor.text.slice(cursor + 1)),
+    { flexDirection: "column" },
     createElement(
-      Text,
-      { dimColor: true },
-      `  ${INPUT_HINT_PARTS.join(` ${symbols.hintSeparator} `)}`,
+      Box,
+      { borderStyle: symbols.border, borderColor: "green", paddingX: 1 },
+      createElement(Text, { color: "green" }, "> "),
+      createElement(Text, null, editor.text.slice(0, cursor)),
+      createElement(Text, { inverse: true }, editor.text.slice(cursor, cursor + 1) || " "),
+      createElement(Text, null, editor.text.slice(cursor + 1)),
+      createElement(
+        Text,
+        { dimColor: true },
+        `  ${INPUT_HINT_PARTS.join(` ${symbols.hintSeparator} `)}`,
+      ),
     ),
+    ...(paletteOpen ? [createElement(Palette, { rows: paletteRows, selected, symbols })] : []),
   );
 }

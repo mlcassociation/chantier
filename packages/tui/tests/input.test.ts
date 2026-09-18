@@ -18,6 +18,7 @@ import {
   pasteChip,
   TaskInput,
 } from "../src/input.ts";
+import type { PaletteCommand } from "../src/palette.ts";
 import { UNICODE_SYMBOLS } from "../src/symbols.ts";
 
 /**
@@ -209,14 +210,16 @@ afterEach(() => {
   instances.length = 0;
 });
 
-function mountTaskInput(
-  overrides: {
-    running?: boolean;
-    queuedCount?: number;
-    history?: HistoryStore;
-    locked?: boolean;
-  } = {},
-): {
+interface HostOverrides {
+  running?: boolean;
+  queuedCount?: number;
+  history?: HistoryStore;
+  locked?: boolean;
+  commands?: readonly PaletteCommand[];
+  files?: readonly string[];
+}
+
+function mountTaskInput(overrides: HostOverrides = {}): {
   events: HostEvents;
   current: () => EditorState;
   frame: () => string;
@@ -247,6 +250,8 @@ function mountTaskInput(
         events.quitArms += 1;
       },
       history: overrides.history,
+      commands: overrides.commands,
+      files: overrides.files,
       locked: overrides.locked,
       symbols: U,
     });
@@ -378,5 +383,205 @@ describe("TaskInput render + lock", () => {
     expect(input.current().text).toBe("");
     expect(input.events.quits).toBe(0);
     expect(input.events.submits).toEqual([]);
+  });
+});
+
+// --- Slash palette + @ picker (v0.6, spec §Theme 3) -------------------------------
+
+const PALETTE_COMMANDS: readonly PaletteCommand[] = [
+  { name: "alpha", description: "first", kind: "expand" },
+  { name: "beta", description: "second", kind: "action" },
+  { name: "alphabet", description: "third", kind: "expand" },
+];
+
+const PALETTE_FILES = ["src/app.ts", "src/widgets/app-view.ts", "tests/app.test.ts"];
+
+describe("slash palette (§Theme 3)", () => {
+  it("opens on a head / and lists the registry", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/");
+    await waitFor(() => input.frame().includes("/beta"));
+    expect(input.frame()).toContain("second");
+    expect(input.current().text).toBe("/");
+  });
+
+  it("types a mid-text / literally", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("say /");
+    expect(input.current().text).toBe("say /");
+    expect(input.frame()).not.toContain("/alpha");
+  });
+
+  it("never opens without commands", async () => {
+    const input = mountTaskInput();
+    await input.key("/");
+    expect(input.current().text).toBe("/");
+    expect(input.frame()).not.toContain("/alpha");
+  });
+
+  it("narrows matches as the query grows", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("z");
+    await waitFor(() => input.frame().includes("no matches"));
+  });
+
+  it("accepts an expand command into the editor", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/al");
+    await waitFor(() => input.frame().includes("no matches") === false);
+    await input.key("\r");
+    await waitFor(() => input.current().text === "/alpha ");
+    expect(input.events.submits).toEqual([]);
+  });
+
+  it("accepts an action command by submitting it", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/be");
+    await waitFor(() => input.frame().includes("/beta"));
+    await input.key("\r");
+    expect(input.events.submits).toEqual(["/beta"]);
+    expect(input.current().text).toBe("");
+  });
+
+  it("submits literal text when nothing matches", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/zz");
+    await waitFor(() => input.frame().includes("no matches"));
+    await input.key("\r");
+    expect(input.events.submits).toEqual(["/zz"]);
+  });
+
+  it("tab inserts the top match without submitting", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("\t");
+    await waitFor(() => input.current().text === "/alpha ");
+    expect(input.events.submits).toEqual([]);
+  });
+
+  it("reselects row 0 when a printable edit moves the query", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/");
+    await input.key("\x1b[B");
+    await waitFor(() => input.frame().includes("❯ /beta"));
+    // The edit re-derives the query ("e" → /beta + /alphabet), so the
+    // selection returns to row 0 and Enter accepts /beta — the action
+    // command row 1 pointed at before the edit.
+    await input.key("e");
+    await input.key("\r");
+    expect(input.events.submits).toEqual(["/beta"]);
+  });
+
+  it("submits literal /compact from one bundled PTY write", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/compact\r");
+    expect(input.events.submits).toEqual(["/compact"]);
+    expect(input.current().text).toBe("/compact");
+  });
+
+  it("moves the selection with ↓ and accepts the selected row", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/");
+    await input.key("\x1b[B");
+    await waitFor(() => input.frame().includes("❯ /beta"));
+    await input.key("\r");
+    // Row 1 is the action /beta: accept submits it.
+    expect(input.events.submits).toEqual(["/beta"]);
+  });
+
+  it("preempts history recall while open", async () => {
+    const history = createHistoryStore();
+    void history.record("older task");
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS, history });
+    await input.key("/");
+    await input.key("\x1b[A");
+    await waitFor(() => input.frame().includes("/beta"));
+    expect(input.current().text).toBe("/");
+    expect(input.events.submits).toEqual([]);
+  });
+
+  it("closes on esc and reopens after the trigger is cleared and retyped", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("\x1b");
+    await waitFor(() => !input.frame().includes("/alpha"));
+    expect(input.current().text).toBe("/a");
+    // Backspace past the trigger re-arms the palette; a plain esc'd draft
+    // keeps it closed while the trigger survives.
+    await input.key("\x7f");
+    await input.key("\x7f");
+    await input.key("/");
+    await waitFor(() => input.frame().includes("/alpha"));
+  });
+
+  it("closes on backspace past the trigger", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("\x7f");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("\x7f");
+    await waitFor(() => !input.frame().includes("/alpha"));
+    expect(input.current().text).toBe("");
+  });
+
+  it("submits literal text for a bundled /compact\r write", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("lpha\r");
+    expect(input.events.submits).toEqual(["/alpha"]);
+    expect(input.current().text).toBe("/alpha");
+  });
+
+  it("keeps the two-stage ctrl-c quit with the palette open", async () => {
+    const input = mountTaskInput({ commands: PALETTE_COMMANDS, running: true });
+    await input.key("/a");
+    await waitFor(() => input.frame().includes("/alpha"));
+    await input.key("\x03");
+    expect(input.events.quitArms).toBe(1);
+    expect(input.events.quits).toBe(0);
+  });
+});
+
+describe("@ file picker (§Theme 3)", () => {
+  it("opens at a word boundary and accepts into the editor", async () => {
+    const input = mountTaskInput({ files: PALETTE_FILES });
+    await input.key("run @app");
+    await waitFor(() => input.frame().includes("src/app.ts"));
+    await input.key("\r");
+    await waitFor(() => input.current().text === "run @src/app.ts ");
+    expect(input.events.submits).toEqual([]);
+  });
+
+  it("keeps a mid-word @ literal", async () => {
+    const input = mountTaskInput({ files: PALETTE_FILES });
+    await input.key("x@y");
+    expect(input.current().text).toBe("x@y");
+    expect(input.frame()).not.toContain("src/app.ts");
+  });
+
+  it("tab inserts the top file match", async () => {
+    const input = mountTaskInput({ files: PALETTE_FILES });
+    await input.key("@");
+    await waitFor(() => input.frame().includes("src/app.ts"));
+    await input.key("\t");
+    // Empty query: every file ties at rank 0, broken by path length then
+    // path — the 10-char src/app.ts is the top row.
+    await waitFor(() => input.current().text === "@src/app.ts ");
+    expect(input.events.submits).toEqual([]);
+  });
+
+  it("narrows file matches as the query grows and closes on esc", async () => {
+    const input = mountTaskInput({ files: PALETTE_FILES });
+    await input.key("run @a");
+    await waitFor(() => input.frame().includes("src/app.ts"));
+    await input.key("\x1b");
+    await waitFor(() => !input.frame().includes("src/app.ts"));
+    expect(input.current().text).toBe("run @a");
   });
 });

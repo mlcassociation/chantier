@@ -1,7 +1,7 @@
 import { render } from "ink-testing-library";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import type { TuiItem } from "../src/items.ts";
+import type { TodoStep, TuiItem } from "../src/items.ts";
 import { ASCII_SYMBOLS, UNICODE_SYMBOLS } from "../src/symbols.ts";
 import {
   approvalCardSpec,
@@ -13,13 +13,21 @@ import {
   formatElapsed,
   formatTokenCount,
   formatTokens,
+  humanizeArgsSummary,
   previewLine,
   queuePreviewLines,
+  RIBBON_INTERVAL_MS,
+  ribbonLines,
   StatusWidget,
   SUBAGENT_SUMMARY_MAX_LINES,
   spinnerFrame,
   statusLines,
+  statusTrailLines,
   subagentLines,
+  todoItemLines,
+  todoItemSrLines,
+  todoItemText,
+  todoTrailLines,
   toolRowLines,
   toolRowSrText,
   withErrorBackstop,
@@ -65,7 +73,7 @@ describe("tool row collapse ladder (§2c)", () => {
       U,
     );
     expect(rows.length).toBe(2);
-    expect(rows[0]?.text).toBe('▸ read({"path":"src/config.ts"})');
+    expect(rows[0]?.text).toBe("▸ read(src/config.ts)");
     expect(rows[1]?.text).toBe("  1 import { readFile } from node:fs/promises;");
     expect(rows[1]?.dim).toBe(true);
   });
@@ -116,12 +124,15 @@ describe("tool row collapse ladder (§2c)", () => {
 
   it("keeps SR parity: labeled line only", () => {
     expect(
-      toolRowSrText({
-        kind: "tool",
-        toolName: "read",
-        argsSummary: "src/config.ts",
-        outcome: "done",
-      }),
+      toolRowSrText(
+        {
+          kind: "tool",
+          toolName: "read",
+          argsSummary: '{"path":"src/config.ts"}',
+          outcome: "done",
+        },
+        U,
+      ),
     ).toBe("tool: read(src/config.ts) done");
   });
 
@@ -449,5 +460,144 @@ describe("all-hidden backstop (§4c)", () => {
   it("is a no-op without an error item", () => {
     const items: TuiItem[] = [toolItem, { kind: "info", text: "n" }];
     expect(withErrorBackstop(items, () => false).length).toBe(0);
+  });
+});
+
+describe("humanized argsSummary (v0.6)", () => {
+  it("renders a single string arg as the string", () => {
+    expect(humanizeArgsSummary('{"path":"src/config.ts"}', U.ellipsis)).toBe("src/config.ts");
+    expect(humanizeArgsSummary('{"command":"ls -la"}', U.ellipsis)).toBe("ls -la");
+  });
+
+  it("prefers a path-like value from the known keys over the first value", () => {
+    expect(humanizeArgsSummary('{"pattern":"foo","path":"src/x.ts"}', U.ellipsis)).toBe("src/x.ts");
+  });
+
+  it("falls back to the first string value", () => {
+    expect(humanizeArgsSummary('{"a":1,"b":"two"}', U.ellipsis)).toBe("two");
+  });
+
+  it("caps leftover JSON at the cap with the mode ellipsis", () => {
+    const long = JSON.stringify({
+      alpha: 12345,
+      beta: 678,
+      gamma: 9,
+      delta: 1011121314,
+      epsilon: 15,
+    });
+    expect(long.length).toBeGreaterThan(60);
+    expect(humanizeArgsSummary(long, U.ellipsis)).toBe(`${long.slice(0, 60)}${U.ellipsis}`);
+  });
+
+  it("caps a cli-truncated (unparseable) JSON blob at the cap", () => {
+    const truncated = `{"a":"${"y".repeat(120)}`;
+    expect(humanizeArgsSummary(truncated, U.ellipsis)).toBe(
+      `${truncated.slice(0, 60)}${U.ellipsis}`,
+    );
+  });
+
+  it("passes non-JSON summaries through unchanged", () => {
+    expect(humanizeArgsSummary("src/config.ts", U.ellipsis)).toBe("src/config.ts");
+    expect(humanizeArgsSummary("{}", U.ellipsis)).toBe("{}");
+  });
+});
+
+describe("ribbon trail (v0.6)", () => {
+  const finished = (name: string, ms: number): TuiItem => ({
+    kind: "tool",
+    toolName: name,
+    argsSummary: "{}",
+    outcome: "done",
+    durationMs: ms,
+  });
+
+  it("shows the last two finished tool rows as dim chips", () => {
+    const lines = statusTrailLines(
+      [finished("read", 1000), finished("edit", 2100), finished("bash", 300)],
+      U,
+    );
+    expect(lines).toEqual([
+      { text: "└ edit 2s ✓", dim: true },
+      { text: "└ bash 300ms ✓", dim: true },
+    ]);
+    expect(statusTrailLines([finished("read", 1000)], A).map((row) => row.text)).toEqual([
+      "+ read 1s +",
+    ]);
+  });
+
+  it("skips errors, missing durations, and non-tool items", () => {
+    const lines = statusTrailLines(
+      [
+        { kind: "tool", toolName: "read", argsSummary: "{}", outcome: "error", durationMs: 10 },
+        { kind: "tool", toolName: "glob", argsSummary: "{}", outcome: "done" },
+        { kind: "info", text: "x" },
+      ],
+      U,
+    );
+    expect(lines).toEqual([]);
+  });
+
+  it("appends a queued count line when the queue is non-empty", () => {
+    const lines = ribbonLines(0, { sinceMs: 0 }, "", [finished("read", 1500)], 2, U, 3000);
+    expect(lines[0]?.text).toContain("working");
+    expect(lines).toContainEqual({ text: "└ read 2s ✓", dim: true });
+    expect(lines).toContainEqual({ text: "└ 2 queued", dim: true });
+  });
+
+  it("keeps the ≤4 Hz interval budget constant", () => {
+    expect(RIBBON_INTERVAL_MS).toBe(250);
+  });
+});
+
+describe("todo checklist (v0.6)", () => {
+  const steps: Array<TodoStep> = [
+    { content: "map seams", status: "completed" },
+    { content: "render echo", status: "in_progress" },
+    { content: "polish", status: "pending" },
+  ];
+
+  it("renders state glyphs with the active row highlighted", () => {
+    expect(todoTrailLines(steps, U)).toEqual([
+      { text: "✓ map seams", dim: true },
+      { text: "● render echo", color: "cyan" },
+      { text: "▢ polish", dim: true },
+    ]);
+    expect(todoTrailLines(steps, A).map((row) => row.text)).toEqual([
+      "+ map seams",
+      "* render echo",
+      "- polish",
+    ]);
+  });
+
+  it("collapses more than five items to the first four plus a +N tail", () => {
+    const six = Array.from({ length: 6 }, (_, index) => ({
+      content: `step ${index}`,
+      status: "pending" as const,
+    }));
+    const rows = todoTrailLines(six, U);
+    expect(rows.length).toBe(5);
+    expect(rows[3]?.text).toBe("▢ step 3");
+    expect(rows[4]).toEqual({ text: "+2", dim: true });
+    // Exactly five items render uncollapsed.
+    expect(todoTrailLines(six.slice(0, 5), U).length).toBe(5);
+  });
+
+  it("serializes the flush item and parses it back", () => {
+    const text = todoItemText(steps);
+    expect(text).toBe("[x] map seams\n[~] render echo\n[ ] polish");
+    expect(todoItemLines(text, U).map((row) => row.text)).toEqual([
+      "✓ map seams",
+      "● render echo",
+      "▢ polish",
+    ]);
+    expect(todoItemSrLines(text)).toEqual([
+      "todo: map seams (done)",
+      "todo: render echo (in progress)",
+      "todo: polish (pending)",
+    ]);
+  });
+
+  it("renders stray lines plain", () => {
+    expect(todoItemLines("garbage", U)).toEqual([{ text: "garbage" }]);
   });
 });

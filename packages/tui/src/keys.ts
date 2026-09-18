@@ -23,6 +23,9 @@ export interface Keychord {
   readonly upArrow?: boolean;
   readonly downArrow?: boolean;
   readonly return?: boolean;
+  /** Tab key: ink clears the input bytes for non-alphanumeric keys, so the
+   * tab travels on its own field (ink 7 useInput). */
+  readonly tab?: boolean;
   readonly backspace?: boolean;
   readonly delete?: boolean;
 }
@@ -55,7 +58,15 @@ export type ActionId =
   | "app.editor.backspace"
   /** Ctrl-L clears + redraws; ink repaints from state, so this is a no-op
    * hook point today — but it must stay OUT of app.quit's chord set. */
-  | "app.redraw";
+  | "app.redraw"
+  /** Palette (v0.6 §Theme 3): ↑/↓ select (preempting history/queue),
+   * enter accepts the selected row, tab inserts the top match. Esc-close
+   * and backspace-past-trigger are state transitions, not chords, and live
+   * in the input state machine. */
+  | "app.palette.prev"
+  | "app.palette.next"
+  | "app.palette.accept"
+  | "app.palette.tab";
 
 /**
  * The chord table. "app.queue.edit" and "app.history.prev" share the
@@ -82,6 +93,10 @@ export const ACTION_CHORDS: Readonly<Record<ActionId, readonly Keychord[]>> = {
   "app.editor.kill.word": [{ input: "w", ctrl: true }],
   "app.editor.backspace": [{ backspace: true }, { delete: true }],
   "app.redraw": [{ input: "l", ctrl: true }],
+  "app.palette.prev": [{ upArrow: true }],
+  "app.palette.next": [{ downArrow: true }],
+  "app.palette.accept": [{ return: true }],
+  "app.palette.tab": [{ tab: true }],
 };
 
 function chordMatches(chord: Keychord, event: Keychord): boolean {
