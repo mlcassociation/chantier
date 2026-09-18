@@ -28,6 +28,7 @@ import {
 } from "./input.ts";
 import type { TuiItem } from "./items.ts";
 import { keypressToDecision } from "./keys.ts";
+import { MarkStatic, tuiVersion } from "./mark.ts";
 import { markdownToElements } from "./markdown.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
 import type { TuiStore } from "./store.ts";
@@ -52,8 +53,10 @@ export interface FooterData {
 export function TuiApp({
   store,
   footer,
+  tips,
 }: {
   store: TuiStore;
+  tips?: boolean;
   footer?: {
     readonly model: string;
     readonly sessionId: string;
@@ -131,6 +134,15 @@ export function TuiApp({
   });
 
   const children: Array<ReactNode> = [
+    createElement(MarkStatic, {
+      columns,
+      symbols,
+      screenReader,
+      version: tuiVersion(),
+      ...(footer?.model === undefined ? {} : { model: footer.model }),
+      ...(footer?.sessionId === undefined ? {} : { sessionId: footer.sessionId }),
+      ...(tips === undefined ? {} : { tips }),
+    }),
     createElement(Static, {
       items: [...state.items],
       // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
@@ -288,6 +300,8 @@ export { keypressToDecision } from "./keys.ts";
 export interface TuiOptions {
   /** Opt-in screen-reader rendering (also honored: CHANTIER_SCREEN_READER=1). */
   readonly screenReader?: boolean;
+  /** Rotating startup tip under the Mark; default on. */
+  readonly tips?: boolean;
   /** Footer segments; session id + model come from the CLI, contextWindow gates the ctx segment. */
   readonly footer?: {
     readonly model: string;
@@ -309,6 +323,7 @@ export function startTui(store: TuiStore, options: TuiOptions = {}): TuiInstance
     createElement(TuiApp, {
       store,
       ...(options.footer === undefined ? {} : { footer: options.footer }),
+      ...(options.tips === undefined ? {} : { tips: options.tips }),
     }),
     {
       exitOnCtrlC: false,
