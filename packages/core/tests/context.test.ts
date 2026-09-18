@@ -128,3 +128,60 @@ describe("sectioned prompt", () => {
     expect(withTask).toContain("# Delegating subtasks");
   });
 });
+
+describe("skill catalog section", () => {
+  it("is omitted entirely when no skills are passed", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "chantier-ctx-"));
+    const prompt = await buildSystemPrompt(cwd, buildTools());
+    expect(prompt).not.toContain("# Skills");
+  });
+
+  it("lists name — description rows only (no skill body)", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "chantier-ctx-"));
+    const prompt = await buildSystemPrompt(cwd, buildTools(), undefined, [
+      {
+        name: "demo",
+        description: "Run the demo flow",
+        dir: "/tmp/demo",
+        frontmatter: { name: "demo", description: "Run the demo flow" },
+      },
+    ]);
+    expect(prompt).toContain("# Skills");
+    expect(prompt).toContain("- demo — Run the demo flow");
+    expect(prompt).not.toContain("skill_content");
+  });
+
+  it("drops the oldest rows past the ~2000-char cap and says how many with (+N more)", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "chantier-ctx-"));
+    const long = "x".repeat(600); // shown truncated to 200 chars per row
+    const names = [
+      "alpha",
+      "bravo",
+      "charlie",
+      "delta",
+      "echo",
+      "foxtrot",
+      "golf",
+      "hotel",
+      "india",
+      "juliett",
+      "kilo",
+      "lima",
+    ];
+    const skills = names.map((name) => ({
+      name,
+      description: long,
+      dir: `/tmp/${name}`,
+      frontmatter: { name, description: long },
+    }));
+    const prompt = await buildSystemPrompt(cwd, buildTools(), undefined, skills);
+    const section = prompt.slice(
+      prompt.indexOf("# Skills"),
+      prompt.indexOf("# Permission denials"),
+    );
+    expect(section.length).toBeLessThan(2400);
+    expect(section).toContain("(+");
+    expect(section).toContain("lima");
+    expect(section).not.toContain("alpha");
+  });
+});
