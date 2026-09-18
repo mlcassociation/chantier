@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { ToolDefinition } from "./types.ts";
 import type { Skill } from "./skills.ts";
+import type { ToolDefinition } from "./types.ts";
 
 /**
  * Tool-usage rules the model needs to drive the harness correctly.

@@ -1,6 +1,15 @@
 export type { AgentEvent, CompactionOptions, RunAgentOptions } from "./agent.ts";
 export { runAgent } from "./agent.ts";
 export {
+  type ActionSpec,
+  type CommandIo,
+  type CommandRegistryV6,
+  createCommandRegistry,
+  type DispatchResult,
+  type ExpandSpec,
+  type RegistrableCommand,
+} from "./commands.ts";
+export {
   COMPACT_PROMPT,
   COMPACTED_MARKER,
   type CompactConversationOptions,
@@ -15,32 +24,7 @@ export {
   serializeConversation,
   shouldCompact,
 } from "./compaction.ts";
-export {
-  type ActionSpec,
-  type CommandIo,
-  type CommandRegistryV6,
-  type DispatchResult,
-  type ExpandSpec,
-  createCommandRegistry,
-  type RegistrableCommand,
-} from "./commands.ts";
 export { buildSystemPrompt, type ModelProfile, resolveModelProfile } from "./context.ts";
-export {
-  type LoadSkillsOptions,
-  type LoadSkillBody,
-  type LoadSkills,
-  type Skill,
-  type SkillFrontmatter,
-  loadSkillBody,
-  loadSkills,
-} from "./skills.ts";
-export {
-  type CreateTodoTool,
-  type TodoStep,
-  createTodoTool,
-  normalizeTodoSteps,
-  summarizeTodoSteps,
-} from "./todo.ts";
 export type { ModelAdapter } from "./model-adapter.ts";
 export {
   alignedMessageOrdinals,
@@ -56,6 +40,22 @@ export {
   sessionsDirFor,
   sessionView,
 } from "./session.ts";
+export {
+  type LoadSkillBody,
+  type LoadSkills,
+  type LoadSkillsOptions,
+  loadSkillBody,
+  loadSkills,
+  type Skill,
+  type SkillFrontmatter,
+} from "./skills.ts";
 export type { SubagentDeps, SubagentResult } from "./subagent.ts";
 export { spawnSubagent } from "./subagent.ts";
+export {
+  type CreateTodoTool,
+  createTodoTool,
+  normalizeTodoSteps,
+  summarizeTodoSteps,
+  type TodoStep,
+} from "./todo.ts";
 export type * from "./types.ts";

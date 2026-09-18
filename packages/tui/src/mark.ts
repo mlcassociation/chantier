@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { Box, Static, Text } from "ink";
+import { Box, Text } from "ink";
 /**
  * Startup Mark (v0.6 §Theme 4): a brand block printed ONCE as the first
  * append-only Static region — never part of the per-frame dynamic tree.
@@ -123,16 +123,4 @@ export function renderMark(options: MarkOptions): ReactElement {
       ? [createElement(Text, { key: "t", dimColor: true }, `tip: ${tip}`)]
       : []),
   );
-}
-
-/**
- * The append-once startup region: a single-item Static that prints the Mark
- * before the transcript begins and is never re-rendered afterwards.
- */
-export function MarkStatic(options: MarkOptions): ReactElement {
-  return createElement(Static, {
-    items: [0],
-    // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
-    children: () => renderMark(options),
-  });
 }

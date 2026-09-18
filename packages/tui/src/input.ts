@@ -349,15 +349,19 @@ export function TaskInput({
     trigger?.kind === "slash" ? commandRows(matchedCommands) : fileRows(matchedFiles);
   const selected = paletteRows.length === 0 ? -1 : Math.min(paletteIndex, paletteRows.length - 1);
   // Reopen after dismissal the moment the trigger token leaves the draft,
-  // and reset the selection whenever the query moves underneath it. Both
-  // resets are no-ops when the state already matches (React bails out).
+  // and reset the selection whenever the query moves underneath it. The
+  // reset runs as a render-phase state update (React re-renders immediately
+  // and bails out when the value already matches) — no effect deps to argue
+  // about with the linter.
   useEffect(() => {
     if (trigger === null) setPaletteDismissed(false);
   });
   const queryKey = `${trigger?.kind ?? ""}:${query}`;
-  useEffect(() => {
+  const lastQueryKey = useRef<string | null>(null);
+  if (queryKey !== lastQueryKey.current) {
+    lastQueryKey.current = queryKey;
     setPaletteIndex(0);
-  }, [queryKey]);
+  }
 
   const insertPaletteRow = (row: PaletteRow | undefined): void => {
     if (row === undefined || trigger === null) return;

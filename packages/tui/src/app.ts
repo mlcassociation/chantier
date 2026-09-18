@@ -28,7 +28,7 @@ import {
 } from "./input.ts";
 import type { TuiItem } from "./items.ts";
 import { keypressToDecision } from "./keys.ts";
-import { MarkStatic, tuiVersion } from "./mark.ts";
+import { renderMark, tuiVersion } from "./mark.ts";
 import { markdownToElements } from "./markdown.ts";
 import { resolveScreenReader } from "./screen-reader.ts";
 import type { TuiStore } from "./store.ts";
@@ -133,21 +133,31 @@ export function TuiApp({
     return () => clearTimeout(timer);
   });
 
+  // ink 7.1.1 holds exactly ONE static node per tree (root.staticNode), so
+  // the Mark ships as the FIRST item of the transcript's own Static —
+  // append-once semantics preserved, no second Static slot to fight over.
+  const MARK_ITEM = Symbol.for("chantier.mark");
+  const markOptions = {
+    columns,
+    symbols,
+    screenReader,
+    version: tuiVersion(),
+    ...(footer?.model === undefined ? {} : { model: footer.model }),
+    ...(footer?.sessionId === undefined ? {} : { sessionId: footer.sessionId }),
+    ...(tips === undefined ? {} : { tips }),
+  };
   const children: Array<ReactNode> = [
-    createElement(MarkStatic, {
-      columns,
-      symbols,
-      screenReader,
-      version: tuiVersion(),
-      ...(footer?.model === undefined ? {} : { model: footer.model }),
-      ...(footer?.sessionId === undefined ? {} : { sessionId: footer.sessionId }),
-      ...(tips === undefined ? {} : { tips }),
-    }),
     createElement(Static, {
-      items: [...state.items],
+      items: [MARK_ITEM, ...state.items],
       // biome-ignore lint/correctness/noChildrenProp: ink 7's Static API takes the render function as a children prop
       children: (item: unknown, index: number) =>
-        itemNode(item as TuiItem, index, symbols, screenReader, ascii),
+        createElement(
+          Box,
+          { key: `t-${index}` },
+          item === MARK_ITEM
+            ? renderMark(markOptions)
+            : itemNode(item as TuiItem, index, symbols, screenReader, ascii),
+        ),
     }),
   ];
   if (state.streamText.length > 0) {
