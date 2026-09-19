@@ -35,50 +35,64 @@ jobs:
       # (a strict re-run would die at the first published package and never
       # reach the rest).
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/permissions
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/core
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/mcp
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/providers
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/tools
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
         working-directory: packages/tui
       - run: |
-          if curl -fsSL "https://registry.npmjs.org/$(echo "$npm_package_name" | sed 's/\//%2F/')/$npm_package_version" >/dev/null 2>&1; then
-            echo "already published: $npm_package_name@$npm_package_version"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if curl -fsSL "https://registry.npmjs.org/$(echo "$NAME" | sed 's/\//%2F/')/$VERSION" >/dev/null 2>&1; then
+            echo "already published: $NAME@$VERSION"
           else
             npm publish --provenance --access public
           fi
