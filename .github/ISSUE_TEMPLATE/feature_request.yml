@@ -1,0 +1,26 @@
+name: "Feature request"
+description: An idea for something chantier should do differently.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does chantier get in the way? Concrete usage beats abstract wishes.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What would the command, flag, or rule look like?
+    validations:
+      required: true
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Fit check
+      description: chantier stays small on purpose. Help us respect the non-goals by confirming you agree with these.
+      options:
+        - label: I read the roadmap and this is not a listed non-goal.
+        - label: This keeps the core loop small (a new tool/flag/standard beats a new subsystem).

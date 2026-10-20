@@ -1,0 +1,18 @@
+{
+  "deny": [
+    "write(.env)",
+    "write(.env.*)",
+    "write(secrets/**)",
+    "bash(rm -rf *)",
+    "bash(git push --force*)"
+  ],
+  "ask": [
+    "write(dist/**)",
+    "write(node_modules/**)",
+    "bash(npm install*)",
+    "bash(npm publish*)",
+    "bash(git push*)",
+    "webfetch"
+  ],
+  "allow": ["read", "glob", "grep"]
+}

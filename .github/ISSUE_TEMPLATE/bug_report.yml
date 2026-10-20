@@ -1,0 +1,58 @@
+name: "Bug report"
+description: Something in chantier broke or behaves differently from the docs.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time. Search existing issues first; if this involves model quality rather than harness behavior, try the smallest reproduction you can.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect vs what did you get?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The command sequence or a headless `chantier -p` invocation that shows it.
+      placeholder: |
+        1. cd my-project
+        2. chantier
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: chantier version
+      placeholder: "0.6.0"
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model / provider
+      description: e.g. Ollama glm-5.3-flash, claude-sonnet-4-5
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - TUI (interactive)
+        - headless (-p)
+        - MCP
+        - skills
+        - permissions / approvals
+        - sessions / compaction
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: terminal
+    attributes:
+      label: Terminal / OS
+      placeholder: Windows Terminal 11, macOS kitty, …

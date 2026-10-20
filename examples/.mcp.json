@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "mcp-server-fetch",
+      "args": ["--max-response-size", "100000"]
+    },
+    "local-api": {
+      "url": "http://127.0.0.1:8390/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Design rationale & docs
+    url: https://github.com/mlcassociation/chantier#documentation
+    about: "How chantier works before filing what it should do instead."
+  - name: Security reports
+    url: https://github.com/mlcassociation/chantier/security
+    about: "Private vulnerability reporting — never open a public issue."
