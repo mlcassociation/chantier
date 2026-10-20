@@ -8,7 +8,9 @@ export default defineConfig({
   resolve: {
     conditions: ["development"],
   },
-  // demos/wordcount-app is a recorded-demo fixture (node --test style) that
-  // ships with the README's GIF recipe -- part of demos, not of this suite.
-  exclude: [...configDefaults.exclude, "demos/**"],
+  test: {
+    // demos/wordcount-app is a recorded-demo fixture (node --test style) that
+    // ships with the README's GIF recipe -- part of demos, not of this suite.
+    exclude: [...configDefaults.exclude, "demos/**"],
+  },
 });
