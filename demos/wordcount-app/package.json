@@ -1,0 +1,7 @@
+{
+  "name": "wordcount-demo",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

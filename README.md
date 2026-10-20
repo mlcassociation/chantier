@@ -9,6 +9,8 @@ The readable open-source coding agent. A terminal harness that turns a model int
 coding agent: a small loop, eight built-in tools, and a deny-first permission ladder —
 no locked-in provider, no magic, nothing mutating your files without an approval.
 
+[![chantier demo](docs/demo.gif)](demos/README.md)
+
 Built around three commitments:
 
 - **Readable.** Sessions are plain JSONL you can open with `jq`. The whole harness is
