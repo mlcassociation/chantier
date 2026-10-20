@@ -1,0 +1,5 @@
+{
+  "name": "bench-fix-slugify",
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

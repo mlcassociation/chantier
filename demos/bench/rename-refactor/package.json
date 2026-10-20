@@ -1,0 +1,5 @@
+{
+  "name": "bench-rename-refactor",
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

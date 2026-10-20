@@ -1,0 +1,5 @@
+{
+  "name": "bench-implement-parseiso",
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

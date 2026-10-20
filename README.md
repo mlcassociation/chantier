@@ -126,6 +126,8 @@ headless `-p` mode is a full plain-text alternative.
 - [Design rationale](docs/design.md) — why chantier is built this way, with sources.
 - [Evals](docs/evals.md) — the CI eval ladder: property tests, scripted behavioral
   scenarios, opt-in live-model recipes.
+- [Benchmarks](docs/BENCHMARKS.md) — the reproducible live-model task table
+  (solve rate, tokens per task, failure taxonomy).
 - [Roadmap](ROADMAP.md) — what shipped through v0.6.0 and what's next.
 - [Contributing](CONTRIBUTING.md) — dev setup, gates, DCO.
 - [Security](SECURITY.md) — how to report vulnerabilities privately.

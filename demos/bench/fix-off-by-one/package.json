@@ -1,0 +1,5 @@
+{
+  "name": "bench-fix-off-by-one",
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}
